@@ -228,7 +228,6 @@ M.expr_list = M.traverse.expr_list
 ----------------------------------------------------------------------
 function M.guess (cfg, x, ...)
    assert(type(x)=='table', "arg #2 in a walker must be an AST")
-   M.debug = cfg.debug or M.debug
    if M.tags.expr[x.tag] then return M.expr(cfg, x, ...)  end
    if M.tags.stat[x.tag] then return M.stat(cfg, x, ...)  end
    if not x.tag          then return M.block(cfg, x, ...) end

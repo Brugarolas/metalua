@@ -18,6 +18,7 @@
 -------------------------------------------------------------------------------
 
 local walk = require 'metalua.treequery.walk'
+
 local pp = require 'metalua.pprint'
 
 local M = { }
@@ -222,7 +223,7 @@ function Q :execute()
         cfg.up(id_node, ...)
         if self.debug then 
           pp.printf("down/up on binder done")
-        end
+    end
     end
 
     cfg.unknown = self.unknown_handler
@@ -277,7 +278,7 @@ function Q :__tostring() return "<treequery>" end
 function Q:debug_on(on)
   if on == nil then on = true end 
   self.debug = on 
-    return self
+  return self
 end
 
 -- -----------------------------------------------------------------------------
