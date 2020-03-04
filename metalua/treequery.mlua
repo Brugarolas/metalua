@@ -18,6 +18,7 @@
 -------------------------------------------------------------------------------
 
 local walk = require 'metalua.treequery.walk'
+local pp = require 'metalua.pprint'
 
 local M = { }
 -- support for old-style modules
@@ -75,6 +76,7 @@ function M.treequery(root)
         up_f        = false,
         down_f      = false,
         filters     = { },
+        debug       = false,
     }, Q)
 end
 
@@ -125,9 +127,16 @@ end
 -- private helper: apply filters and execute up/down callbacks when applicable
 function Q :execute()
     local cfg = { }
+    if self.debug then 
+      cfg.debug = self.debug
+    end
     -- TODO: optimize away not_under & not_after by pruning the tree
     function cfg.down(...)
-        --printf ("[down]\t%s\t%s", self.unsatisfied, table.tostring((...)))
+         if self.debug then 
+           cfg.lvl = cfg.lvl or 0
+            pp.printf("%s[down]\9%s\9%s", ("  "):rep(cfg.lvl), self.unsatisfied, pp.tostring({...}, {fix_indent = cfg.lvl*2, metalua_tag = true, hide_lineinfo=true}))
+           cfg.lvl = cfg.lvl +1
+        end
         ACTIVE_SCOPE[...] = cfg.scope
         local satisfied = self.unsatisfied==0
         for _, x in ipairs(self.predicates) do
@@ -166,8 +175,10 @@ function Q :execute()
     end
 
     function cfg.up(...)
-        --printf ("[up]\t%s", table.tostring((...)))
-
+        if self.debug then  
+          cfg.lvl = cfg.lvl -1
+          pp.printf("%s[up]\9%s", ("  "):rep(cfg.lvl), pp.tostring({...}, {fix_indent = cfg.lvl*2, metalua_tag = true, hide_lineinfo=true}))
+        end
         -- Remove predicates which are due before we go up this node
         local preds = self.until_up[...]
         if preds then
@@ -185,7 +196,7 @@ function Q :execute()
         local satisfied = self.unsatisfied==0
         if satisfied then
             for _, f in ipairs(self.filters) do
-                if not f(self, ...) then satisfied=false; break end
+                if not f(...) then satisfied=false; break end
             end
             if satisfied and self.up_f then self.up_f(...) end
         end
@@ -203,11 +214,15 @@ function Q :execute()
     end
 
     function cfg.binder(id_node, ...)
-        --printf(" >>> Binder called on %s, %s", table.tostring(id_node),
-        --      table.tostring{...}:sub(2,-2))
+        if self.debug then 
+          pp.printf(" >>> Binder called on %s, %s", pp.tostring(id_node),
+              pp.tostring{...}:sub(2,-2))
+        end
         cfg.down(id_node, ...)
         cfg.up(id_node, ...)
-        --printf("down/up on binder done")
+        if self.debug then 
+          pp.printf("down/up on binder done")
+        end
     end
 
     cfg.unknown = self.unknown_handler
@@ -255,6 +270,15 @@ end
 
 --- Pretty printer for queries
 function Q :__tostring() return "<treequery>" end
+
+
+--- Utility method to change the debug state and to chain call
+-- @param on boolean enable or disable the debug output 
+function Q:debug_on(on)
+  if on == nil then on = true end 
+  self.debug = on 
+    return self
+end
 
 -- -----------------------------------------------------------------------------
 -- -----------------------------------------------------------------------------
