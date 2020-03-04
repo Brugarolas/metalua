@@ -197,7 +197,7 @@ function Q :execute()
         local satisfied = self.unsatisfied==0
         if satisfied then
             for _, f in ipairs(self.filters) do
-                if not f(self, ...) then satisfied=false; break end
+                if not f(...) then satisfied=false; break end
             end
             if satisfied and self.up_f then self.up_f(...) end
         end
