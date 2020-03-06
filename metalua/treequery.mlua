@@ -269,6 +269,14 @@ function Q :first()
    return unpack(result)
 end
 
+--- Return the last matching element
+function Q :last()
+   local result = { }
+   local function f(...) result = {...} end
+   pcall(|| self :foreach(f))
+   return unpack(result)
+end
+
 --- Pretty printer for queries
 function Q :__tostring() return "<treequery>" end
 
