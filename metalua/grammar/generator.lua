@@ -44,9 +44,9 @@
 --
 --------------------------------------------------------------------------------
 
-local M = { }
+local M = {}
 
-local lexer = require 'metalua.grammar.lexer'
+local lexer = require("metalua.grammar.lexer")
 
 --------------------------------------------------------------------------------
 -- Symbol generator: [gensym()] returns a guaranteed-to-be-unique identifier.
@@ -57,20 +57,19 @@ local lexer = require 'metalua.grammar.lexer'
 --------------------------------------------------------------------------------
 local gensymidx = 0
 
-function M.gensym (arg)
+function M.gensym(arg)
    gensymidx = gensymidx + 1
-   return { tag="Id", string.format(".%i.%s", gensymidx, arg or "")}
+   return { tag = "Id", string.format(".%i.%s", gensymidx, arg or "") }
 end
-
 
 -------------------------------------------------------------------------------
 -- parser metatable, which maps __call to method parse, and adds some
 -- error tracing boilerplate.
 -------------------------------------------------------------------------------
-local parser_metatable = { }
+local parser_metatable = {}
 
-function parser_metatable :__call (lx, ...)
-    return self :parse (lx, ...)
+function parser_metatable:__call(lx, ...)
+   return self:parse(lx, ...)
 end
 
 -------------------------------------------------------------------------------
@@ -78,11 +77,13 @@ end
 -------------------------------------------------------------------------------
 function M.make_parser(kind, p)
    p.kind = kind
-   if not p.transformers then p.transformers = { } end
-   function p.transformers:add (x)
-      table.insert (self, x)
+   if not p.transformers then
+      p.transformers = {}
    end
-   setmetatable (p, parser_metatable)
+   function p.transformers:add(x)
+      table.insert(self, x)
+   end
+   setmetatable(p, parser_metatable)
    return p
 end
 
@@ -90,55 +91,65 @@ end
 -- Return true iff [x] is a parser.
 -- If it's a gg-generated parser, return the name of its kind.
 -------------------------------------------------------------------------------
-function M.is_parser (x)
-   return type(x)=="function" or getmetatable(x)==parser_metatable and x.kind
+function M.is_parser(x)
+   return type(x) == "function" or getmetatable(x) == parser_metatable and x.kind
 end
 
 -------------------------------------------------------------------------------
 -- Parse a sequence, without applying builder nor transformers.
 -------------------------------------------------------------------------------
-local function raw_parse_sequence (lx, p)
-    local r = { }
-    for i=1, #p do
-        local e=p[i]
-        if type(e) == "string" then
-            local kw = lx :next()
-            if not lx :is_keyword (kw, e) then
-                M.parse_error(
-                    lx, "A keyword was expected, probably `%s'.", e)
-            end
-        elseif M.is_parser (e) then
-            table.insert (r, e(lx))
-        else -- Invalid parser definition, this is *not* a parsing error
-            error(string.format(
-                      "Sequence `%s': element #%i is neither a string nor a parser: %s",
-                      p.name, i, table.tostring(e)))
-        end
-    end
-    return r
+local function raw_parse_sequence(lx, p)
+   local r = {}
+   for i = 1, #p do
+      local e = p[i]
+      if type(e) == "string" then
+         local kw = lx:next()
+         if not lx:is_keyword(kw, e) then
+            M.parse_error(lx, "A keyword was expected, probably `%s'.", e)
+         end
+      elseif M.is_parser(e) then
+         table.insert(r, e(lx))
+      else -- Invalid parser definition, this is *not* a parsing error
+         error(
+            string.format(
+               "Sequence `%s': element #%i is neither a string nor a parser: %s",
+               p.name,
+               i,
+               table.tostring(e)
+            )
+         )
+      end
+   end
+   return r
 end
 
 -------------------------------------------------------------------------------
 -- Parse a multisequence, without applying multisequence transformers.
 -- The sequences are completely parsed.
 -------------------------------------------------------------------------------
-local function raw_parse_multisequence (lx, sequence_table, default)
+local function raw_parse_multisequence(lx, sequence_table, default)
    local seq_parser = sequence_table[lx:is_keyword(lx:peek())]
-   if seq_parser  then return seq_parser (lx)
-   elseif default then return default (lx)
-   else return false end
+   if seq_parser then
+      return seq_parser(lx)
+   elseif default then
+      return default(lx)
+   else
+      return false
+   end
 end
 
 -------------------------------------------------------------------------------
 -- Applies all transformers listed in parser on ast.
 -------------------------------------------------------------------------------
-local function transform (ast, parser, fli, lli)
+local function transform(ast, parser, fli, lli)
    if parser.transformers then
-      for _, t in ipairs (parser.transformers) do ast = t(ast) or ast end
+      for _, t in ipairs(parser.transformers) do
+         ast = t(ast) or ast
+      end
    end
-   if type(ast) == 'table' then
+   if type(ast) == "table" then
       local ali = ast.lineinfo
-      if not ali or ali.first~=fli or ali.last~=lli then
+      if not ali or ali.first ~= fli or ali.last ~= lli then
          ast.lineinfo = lexer.new_lineinfo(fli, lli)
       end
    end
@@ -158,16 +169,22 @@ function M.parse_error(lx, fmt, ...)
       line, column, offset = -1, -1, -1
    end
 
-   local msg  = string.format("line %i, char %i: "..fmt, line, column, ...)
-   if file and file~='?' then msg = "file "..file..", "..msg end
+   local msg = string.format("line %i, char %i: " .. fmt, line, column, ...)
+   if file and file ~= "?" then
+      msg = "file " .. file .. ", " .. msg
+   end
 
    local src = lx.src
-   if offset>0 and src then
+   if offset > 0 and src then
       local i, j = offset, offset
-      while src:sub(i,i) ~= '\n' and i>=0    do i=i-1 end
-      while src:sub(j,j) ~= '\n' and j<=#src do j=j+1 end
-      local srcline = src:sub (i+1, j-1)
-      local idx  = string.rep (" ", column).."^"
+      while src:sub(i, i) ~= "\n" and i >= 0 do
+         i = i - 1
+      end
+      while src:sub(j, j) ~= "\n" and j <= #src do
+         j = j + 1
+      end
+      local srcline = src:sub(i + 1, j - 1)
+      local idx = string.rep(" ", column) .. "^"
       msg = string.format("%s\n>>> %s\n>>> %s", msg, srcline, idx)
    end
    --lx :kill()
@@ -201,27 +218,30 @@ end
 -- * [name] is set, if it wasn't in the input.
 --
 -------------------------------------------------------------------------------
-function M.sequence (p)
-   M.make_parser ("sequence", p)
+function M.sequence(p)
+   M.make_parser("sequence", p)
 
    -------------------------------------------------------------------
    -- Parsing method
    -------------------------------------------------------------------
-   function p:parse (lx)
-
+   function p:parse(lx)
       -- Raw parsing:
       local fli = lx:lineinfo_right()
-      local seq = raw_parse_sequence (lx, self)
+      local seq = raw_parse_sequence(lx, self)
       local lli = lx:lineinfo_left()
 
       -- Builder application:
-      local builder, tb = self.builder, type (self.builder)
-      if tb == "string" then seq.tag = builder
-      elseif tb == "function" or builder and builder.__call then seq = builder(seq)
+      local builder, tb = self.builder, type(self.builder)
+      if tb == "string" then
+         seq.tag = builder
+      elseif tb == "function" or builder and builder.__call then
+         seq = builder(seq)
       elseif builder == nil then -- nothing
-      else error ("Invalid builder of type "..tb.." in sequence") end
-      seq = transform (seq, self, fli, lli)
-      assert (not seq or seq.lineinfo)
+      else
+         error("Invalid builder of type " .. tb .. " in sequence")
+      end
+      seq = transform(seq, self, fli, lli)
+      assert(not seq or seq.lineinfo)
       return seq
    end
 
@@ -231,18 +251,20 @@ function M.sequence (p)
    -- Try to build a proper name
    if p.name then
       -- don't touch existing name
-   elseif type(p[1])=="string" then -- find name based on 1st keyword
-      if #p==1 then p.name=p[1]
-      elseif type(p[#p])=="string" then
+   elseif type(p[1]) == "string" then -- find name based on 1st keyword
+      if #p == 1 then
+         p.name = p[1]
+      elseif type(p[#p]) == "string" then
          p.name = p[1] .. " ... " .. p[#p]
-      else p.name = p[1] .. " ..." end
+      else
+         p.name = p[1] .. " ..."
+      end
    else -- can't find a decent name
       p.name = "unnamed_sequence"
    end
 
    return p
 end --</sequence>
-
 
 -------------------------------------------------------------------------------
 --
@@ -282,40 +304,45 @@ end --</sequence>
 -- * [kind] == "multisequence"
 --
 -------------------------------------------------------------------------------
-function M.multisequence (p)
-   M.make_parser ("multisequence", p)
+function M.multisequence(p)
+   M.make_parser("multisequence", p)
 
    -------------------------------------------------------------------
    -- Add a sequence (might be just a config table for [gg.sequence])
    -------------------------------------------------------------------
-   function p :add (s)
+   function p:add(s)
       -- compile if necessary:
-      local keyword = type(s)=='table' and s[1]
-      if type(s)=='table' and not M.is_parser(s) then M.sequence(s) end
-      if M.is_parser(s)~='sequence' or type(keyword)~='string' then
+      local keyword = type(s) == "table" and s[1]
+      if type(s) == "table" and not M.is_parser(s) then
+         M.sequence(s)
+      end
+      if M.is_parser(s) ~= "sequence" or type(keyword) ~= "string" then
          if self.default then -- two defaults
-            error ("In a multisequence parser, all but one sequences "..
-                   "must start with a keyword")
-         else self.default = s end -- first default
-     else
+            error("In a multisequence parser, all but one sequences " .. "must start with a keyword")
+         else
+            self.default = s
+         end -- first default
+      else
          if self.sequences[keyword] then -- duplicate keyword
-             -- TODO: warn that initial keyword `keyword` is overloaded in multiseq
+            -- TODO: warn that initial keyword `keyword` is overloaded in multiseq
          end
          self.sequences[keyword] = s
-     end
+      end
    end -- </multisequence.add>
 
    -------------------------------------------------------------------
    -- Get the sequence starting with this keyword. [kw :: string]
    -------------------------------------------------------------------
-   function p :get (kw) return self.sequences [kw] end
+   function p:get(kw)
+      return self.sequences[kw]
+   end
 
    -------------------------------------------------------------------
    -- Remove the sequence starting with keyword [kw :: string]
    -------------------------------------------------------------------
-   function p :del (kw)
+   function p:del(kw)
       if not self.sequences[kw] then
-          -- TODO: warn that we try to delete a non-existent entry
+         -- TODO: warn that we try to delete a non-existent entry
       end
       local removed = self.sequences[kw]
       self.sequences[kw] = nil
@@ -325,11 +352,11 @@ function M.multisequence (p)
    -------------------------------------------------------------------
    -- Parsing method
    -------------------------------------------------------------------
-   function p :parse (lx)
+   function p:parse(lx)
       local fli = lx:lineinfo_right()
-      local x = raw_parse_multisequence (lx, self.sequences, self.default)
+      local x = raw_parse_multisequence(lx, self.sequences, self.default)
       local lli = lx:lineinfo_left()
-      return transform (x, self, fli, lli)
+      return transform(x, self, fli, lli)
    end
 
    -------------------------------------------------------------------
@@ -338,14 +365,16 @@ function M.multisequence (p)
    -- Register the sequences passed to the constructor. They're going
    -- from the array part of the parser to the hash part of field
    -- [sequences]
-   p.sequences = { }
-   for i=1, #p do p :add (p[i]); p[i] = nil end
+   p.sequences = {}
+   for i = 1, #p do
+      p:add(p[i])
+      p[i] = nil
+   end
 
    -- FIXME: why is this commented out?
    --if p.default and not is_parser(p.default) then sequence(p.default) end
    return p
 end --</multisequence>
-
 
 -------------------------------------------------------------------------------
 --
@@ -392,8 +421,8 @@ end --</multisequence>
 --   [add] method
 --
 -------------------------------------------------------------------------------
-function M.expr (p)
-   M.make_parser ("expr", p)
+function M.expr(p)
+   M.make_parser("expr", p)
 
    -------------------------------------------------------------------
    -- parser method.
@@ -401,7 +430,7 @@ function M.expr (p)
    -- it won't read expressions whose precedence is lower or equal
    -- to [prec].
    -------------------------------------------------------------------
-   function p :parse (lx, prec)
+   function p:parse(lx, prec)
       prec = prec or 0
 
       ------------------------------------------------------
@@ -409,15 +438,20 @@ function M.expr (p)
       -- options table, for (pre|in|suff)fix operators.
       -- Options include prec, assoc, transformers.
       ------------------------------------------------------
-      local function get_parser_info (tab)
-         local p2 = tab :get (lx :is_keyword (lx :peek()))
+      local function get_parser_info(tab)
+         local p2 = tab:get(lx:is_keyword(lx:peek()))
          if p2 then -- keyword-based sequence found
-            local function parser(lx) return raw_parse_sequence(lx, p2) end
+            local function parser(lx)
+               return raw_parse_sequence(lx, p2)
+            end
             return parser, p2
          else -- Got to use the default parser
             local d = tab.default
-            if d then return d.parse or d.parser, d
-            else return false, false end
+            if d then
+               return d.parse or d.parser, d
+            else
+               return false, false
+            end
          end
       end
 
@@ -427,19 +461,19 @@ function M.expr (p)
       -- Notice the double-transform: one for the primary
       -- expr, and one for the one with the prefix op.
       ------------------------------------------------------
-      local function handle_prefix ()
-         local fli = lx :lineinfo_right()
-         local p2_func, p2 = get_parser_info (self.prefix)
-         local op = p2_func and p2_func (lx)
+      local function handle_prefix()
+         local fli = lx:lineinfo_right()
+         local p2_func, p2 = get_parser_info(self.prefix)
+         local op = p2_func and p2_func(lx)
          if op then -- Keyword-based sequence found
-            local ili = lx :lineinfo_right() -- Intermediate LineInfo
-            local e = p2.builder (op, self :parse (lx, p2.prec))
-            local lli = lx :lineinfo_left()
-            return transform (transform (e, p2, ili, lli), self, fli, lli)
+            local ili = lx:lineinfo_right() -- Intermediate LineInfo
+            local e = p2.builder(op, self:parse(lx, p2.prec))
+            local lli = lx:lineinfo_left()
+            return transform(transform(e, p2, ili, lli), self, fli, lli)
          else -- No prefix found, get a primary expression
             local e = self.primary(lx)
-            local lli = lx :lineinfo_left()
-            return transform (e, self, fli, lli)
+            local lli = lx:lineinfo_left()
+            return transform(e, self, fli, lli)
          end
       end --</expr.parse.handle_prefix>
 
@@ -448,9 +482,11 @@ function M.expr (p)
       -- Return the whole binary expression result,
       -- or false if no operator was found.
       ------------------------------------------------------
-      local function handle_infix (e)
-         local p2_func, p2 = get_parser_info (self.infix)
-         if not p2 then return false end
+      local function handle_infix(e)
+         local p2_func, p2 = get_parser_info(self.infix)
+         if not p2 then
+            return false
+         end
 
          -----------------------------------------
          -- Handle flattening operators: gather all operands
@@ -458,46 +494,50 @@ function M.expr (p)
          -- is found, stop, build from [list], [transform] and
          -- return.
          -----------------------------------------
-         if (not p2.prec or p2.prec>prec) and p2.assoc=="flat" then
+         if (not p2.prec or p2.prec > prec) and p2.assoc == "flat" then
             local fli = lx:lineinfo_right()
             local pflat, list = p2, { e }
             repeat
                local op = p2_func(lx)
-               if not op then break end
-               table.insert (list, self:parse (lx, p2.prec))
+               if not op then
+                  break
+               end
+               table.insert(list, self:parse(lx, p2.prec))
                local _ -- We only care about checking that p2==pflat
-               _, p2 = get_parser_info (self.infix)
+               _, p2 = get_parser_info(self.infix)
             until p2 ~= pflat
-            local e2 = pflat.builder (list)
+            local e2 = pflat.builder(list)
             local lli = lx:lineinfo_left()
-            return transform (transform (e2, pflat, fli, lli), self, fli, lli)
+            return transform(transform(e2, pflat, fli, lli), self, fli, lli)
 
          -----------------------------------------
          -- Handle regular infix operators: [e] the LHS is known,
          -- just gather the operator and [e2] the RHS.
          -- Result goes in [e3].
          -----------------------------------------
-         elseif p2.prec and p2.prec>prec or
-                p2.prec==prec and p2.assoc=="right" then
+         elseif p2.prec and p2.prec > prec or p2.prec == prec and p2.assoc == "right" then
             local fli = e.lineinfo.first -- lx:lineinfo_right()
             local op = p2_func(lx)
-            if not op then return false end
-            local e2 = self:parse (lx, p2.prec)
-            local e3 = p2.builder (e, op, e2)
+            if not op then
+               return false
+            end
+            local e2 = self:parse(lx, p2.prec)
+            local e3 = p2.builder(e, op, e2)
             local lli = lx:lineinfo_left()
-            return transform (transform (e3, p2, fli, lli), self, fli, lli)
+            return transform(transform(e3, p2, fli, lli), self, fli, lli)
 
          -----------------------------------------
          -- Check for non-associative operators, and complain if applicable.
          -----------------------------------------
-         elseif p2.assoc=="none" and p2.prec==prec then
-            M.parse_error (lx, "non-associative operator!")
+         elseif p2.assoc == "none" and p2.prec == prec then
+            M.parse_error(lx, "non-associative operator!")
 
          -----------------------------------------
          -- No infix operator suitable at that precedence
          -----------------------------------------
-         else return false end
-
+         else
+            return false
+         end
       end --</expr.parse.handle_infix>
 
       ------------------------------------------------------
@@ -505,18 +545,22 @@ function M.expr (p)
       -- Return the result of suffix operator on [e],
       -- or false if no operator was found.
       ------------------------------------------------------
-      local function handle_suffix (e)
+      local function handle_suffix(e)
          -- FIXME bad fli, must take e.lineinfo.first
-         local p2_func, p2 = get_parser_info (self.suffix)
-         if not p2 then return false end
-         if not p2.prec or p2.prec>=prec then
+         local p2_func, p2 = get_parser_info(self.suffix)
+         if not p2 then
+            return false
+         end
+         if not p2.prec or p2.prec >= prec then
             --local fli = lx:lineinfo_right()
             local fli = e.lineinfo.first
             local op = p2_func(lx)
-            if not op then return false end
+            if not op then
+               return false
+            end
             local lli = lx:lineinfo_left()
-            e = p2.builder (e, op)
-            e = transform (transform (e, p2, fli, lli), self, fli, lli)
+            e = p2.builder(e, op)
+            e = transform(transform(e, p2, fli, lli), self, fli, lli)
             return e
          end
          return false
@@ -529,8 +573,10 @@ function M.expr (p)
       ------------------------------------------------------
       local e = handle_prefix()
       repeat
-         local x = handle_suffix (e); e = x or e
-         local y = handle_infix   (e); e = y or e
+         local x = handle_suffix(e)
+         e = x or e
+         local y = handle_infix(e)
+         e = y or e
       until not (x or y)
 
       -- No transform: it already happened in operators handling
@@ -540,15 +586,23 @@ function M.expr (p)
    -------------------------------------------------------------------
    -- Construction
    -------------------------------------------------------------------
-   if not p.primary then p.primary=p[1]; p[1]=nil end
-   for _, t in ipairs{ "primary", "prefix", "infix", "suffix" } do
-      if not p[t] then p[t] = { } end
-      if not M.is_parser(p[t]) then M.multisequence(p[t]) end
+   if not p.primary then
+      p.primary = p[1]
+      p[1] = nil
    end
-   function p:add(...) return self.primary:add(...) end
+   for _, t in ipairs({ "primary", "prefix", "infix", "suffix" }) do
+      if not p[t] then
+         p[t] = {}
+      end
+      if not M.is_parser(p[t]) then
+         M.multisequence(p[t])
+      end
+   end
+   function p:add(...)
+      return self.primary:add(...)
+   end
    return p
 end --</expr>
-
 
 -------------------------------------------------------------------------------
 --
@@ -580,38 +634,35 @@ end --</expr>
 -- * [kind] == "list"
 --
 -------------------------------------------------------------------------------
-function M.list (p)
-   M.make_parser ("list", p)
+function M.list(p)
+   M.make_parser("list", p)
 
    -------------------------------------------------------------------
    -- Parsing method
    -------------------------------------------------------------------
-   function p :parse (lx)
-
+   function p:parse(lx)
       ------------------------------------------------------
       -- Used to quickly check whether there's a terminator
       -- or a separator immediately ahead
       ------------------------------------------------------
-      local function peek_is_in (keywords)
-         return keywords and lx:is_keyword(lx:peek(), unpack(keywords)) end
+      local function peek_is_in(keywords)
+         return keywords and lx:is_keyword(lx:peek(), unpack(keywords))
+      end
 
-      local x = { }
-      local fli = lx :lineinfo_right()
+      local x = {}
+      local fli = lx:lineinfo_right()
 
       -- if there's a terminator to start with, don't bother trying
-      local is_empty_list = self.terminators and (peek_is_in (self.terminators) or lx:peek().tag=="Eof")
+      local is_empty_list = self.terminators and (peek_is_in(self.terminators) or lx:peek().tag == "Eof")
       if not is_empty_list then
          repeat
-             local item = self.primary(lx)
-             table.insert (x, item) -- read one element
-         until
-            -- There's a separator list specified, and next token isn't in it.
-            -- Otherwise, consume it with [lx:next()]
-            self.separators and not(peek_is_in (self.separators) and lx:next()) or
+            local item = self.primary(lx)
+            table.insert(x, item) -- read one element
+         until  -- There's a separator list specified, and next token isn't in it.            -- Otherwise, consume it with [lx:next()]self.separators and not (peek_is_in(self.separators) and lx:next())
             -- Terminator token ahead
-            peek_is_in (self.terminators) or
+            or peek_is_in(self.terminators)
             -- Last reason: end of file reached
-            lx:peek().tag=="Eof"
+            or lx:peek().tag == "Eof"
       end
 
       local lli = lx:lineinfo_left()
@@ -620,28 +671,40 @@ function M.list (p)
       -- or simply nothing.
       local b = self.builder
       if b then
-         if type(b)=="string" then x.tag = b -- b is a string, use it as a tag
-         elseif type(b)=="function" then x=b(x)
+         if type(b) == "string" then
+            x.tag = b -- b is a string, use it as a tag
+         elseif type(b) == "function" then
+            x = b(x)
          else
             local bmt = getmetatable(b)
-            if bmt and bmt.__call then x=b(x) end
+            if bmt and bmt.__call then
+               x = b(x)
+            end
          end
       end
-      return transform (x, self, fli, lli)
+      return transform(x, self, fli, lli)
    end --</list.parse>
 
    -------------------------------------------------------------------
    -- Construction
    -------------------------------------------------------------------
-   if not p.primary then p.primary = p[1]; p[1] = nil end
-   if type(p.terminators) == "string" then p.terminators = { p.terminators }
-   elseif p.terminators and #p.terminators == 0 then p.terminators = nil end
-   if type(p.separators) == "string" then p.separators = { p.separators }
-   elseif p.separators and #p.separators == 0 then p.separators = nil end
+   if not p.primary then
+      p.primary = p[1]
+      p[1] = nil
+   end
+   if type(p.terminators) == "string" then
+      p.terminators = { p.terminators }
+   elseif p.terminators and #p.terminators == 0 then
+      p.terminators = nil
+   end
+   if type(p.separators) == "string" then
+      p.separators = { p.separators }
+   elseif p.separators and #p.separators == 0 then
+      p.separators = nil
+   end
 
    return p
 end --</list>
-
 
 -------------------------------------------------------------------------------
 --
@@ -682,37 +745,46 @@ end --</list>
 -- * [keywords]
 --
 -------------------------------------------------------------------------------
-function M.onkeyword (p)
-   M.make_parser ("onkeyword", p)
+function M.onkeyword(p)
+   M.make_parser("onkeyword", p)
 
    -------------------------------------------------------------------
    -- Parsing method
    -------------------------------------------------------------------
-   function p :parse (lx)
-      if lx :is_keyword (lx:peek(), unpack(self.keywords)) then
+   function p:parse(lx)
+      if lx:is_keyword(lx:peek(), unpack(self.keywords)) then
          local fli = lx:lineinfo_right()
-         if not self.peek then lx:next() end
-         local content = self.primary (lx)
+         if not self.peek then
+            lx:next()
+         end
+         local content = self.primary(lx)
          local lli = lx:lineinfo_left()
-         local li = content.lineinfo or { }
+         local li = content.lineinfo or {}
          fli, lli = li.first or fli, li.last or lli
-         return transform (content, p, fli, lli)
-      else return false end
+         return transform(content, p, fli, lli)
+      else
+         return false
+      end
    end
 
    -------------------------------------------------------------------
    -- Construction
    -------------------------------------------------------------------
-   if not p.keywords then p.keywords = { } end
-   for _, x in ipairs(p) do
-      if type(x)=="string" then table.insert (p.keywords, x)
-      else assert (not p.primary and M.is_parser (x)); p.primary = x end
+   if not p.keywords then
+      p.keywords = {}
    end
-   assert (next (p.keywords), "Missing trigger keyword in gg.onkeyword")
-   assert (p.primary, 'no primary parser in gg.onkeyword')
+   for _, x in ipairs(p) do
+      if type(x) == "string" then
+         table.insert(p.keywords, x)
+      else
+         assert(not p.primary and M.is_parser(x))
+         p.primary = x
+      end
+   end
+   assert(next(p.keywords), "Missing trigger keyword in gg.onkeyword")
+   assert(p.primary, "no primary parser in gg.onkeyword")
    return p
 end --</onkeyword>
-
 
 -------------------------------------------------------------------------------
 --
@@ -727,20 +799,25 @@ end --</onkeyword>
 -- Notice that tokens returned by lexer already carry lineinfo, therefore
 -- there's no need to add them, as done usually through transform() calls.
 -------------------------------------------------------------------------------
-function M.optkeyword (...)
-   local args = {...}
-   if type (args[1]) == "table" then
-      assert (#args == 1)
+function M.optkeyword(...)
+   local args = { ... }
+   if type(args[1]) == "table" then
+      assert(#args == 1)
       args = args[1]
    end
-   for _, v in ipairs(args) do assert (type(v)=="string") end
-   return function (lx)
-      local x = lx:is_keyword (lx:peek(), unpack (args))
-      if x then lx:next(); return x
-      else return false end
+   for _, v in ipairs(args) do
+      assert(type(v) == "string")
+   end
+   return function(lx)
+      local x = lx:is_keyword(lx:peek(), unpack(args))
+      if x then
+         lx:next()
+         return x
+      else
+         return false
+      end
    end
 end
-
 
 -------------------------------------------------------------------------------
 --
@@ -755,13 +832,12 @@ end
 --
 -------------------------------------------------------------------------------
 function M.with_lexer(new_lexer, parser)
-
    -------------------------------------------------------------------
    -- Most gg functions take their parameters in a table, so it's
    -- better to silently accept when with_lexer{ } is called with
    -- its arguments in a list:
    -------------------------------------------------------------------
-   if not parser and #new_lexer==2 and type(new_lexer[1])=='table' then
+   if not parser and #new_lexer == 2 and type(new_lexer[1]) == "table" then
       return M.with_lexer(unpack(new_lexer))
    end
 
@@ -769,14 +845,18 @@ function M.with_lexer(new_lexer, parser)
    -- Save the current lexer, switch it for the new one, run the parser,
    -- restore the previous lexer, even if the parser caused an error.
    -------------------------------------------------------------------
-   return function (lx)
+   return function(lx)
       local old_lexer = getmetatable(lx)
       lx:sync()
       setmetatable(lx, new_lexer)
       local status, result = pcall(parser, lx)
       lx:sync()
       setmetatable(lx, old_lexer)
-      if status then return result else error(result) end
+      if status then
+         return result
+      else
+         error(result)
+      end
    end
 end
 
@@ -786,47 +866,58 @@ end
 --
 --------------------------------------------------------------------------------
 function M.nonempty(primary)
-    local p = M.make_parser('non-empty list', { primary = primary, name=primary.name })
-    function p :parse (lx)
-         local fli = lx:lineinfo_right()
-         local content = self.primary (lx)
-         local lli = lx:lineinfo_left()
-         local li = content.lineinfo or { }
-         fli, lli = li.first or fli, li.last or lli
-         if #content == 0 then
-           M.parse_error (lx, "`%s' must not be empty.", self.name or "list")
-       else
-           return transform (content, self, fli, lli)
-       end
-    end
-    return p
+   local p = M.make_parser("non-empty list", { primary = primary, name = primary.name })
+   function p:parse(lx)
+      local fli = lx:lineinfo_right()
+      local content = self.primary(lx)
+      local lli = lx:lineinfo_left()
+      local li = content.lineinfo or {}
+      fli, lli = li.first or fli, li.last or lli
+      if #content == 0 then
+         M.parse_error(lx, "`%s' must not be empty.", self.name or "list")
+      else
+         return transform(content, self, fli, lli)
+      end
+   end
+   return p
 end
 
-local FUTURE_MT = { }
-function FUTURE_MT:__tostring() return "<Proxy parser module>" end
-function FUTURE_MT:__newindex(key, value) error "don't write in futures" end
-function FUTURE_MT :__index (parser_name)
-    return function(...)
-        local p, m = rawget(self, '__path'), self.__module
-        if p then for _, name in ipairs(p) do
-            m=rawget(m, name)
-            if not m then error ("Submodule '"..name.."' undefined") end
-        end end
-        local f = rawget(m, parser_name)
-        if not f then error ("Parser '"..parser_name.."' undefined") end
-        return f(...)
-    end
+local FUTURE_MT = {}
+function FUTURE_MT:__tostring()
+   return "<Proxy parser module>"
+end
+function FUTURE_MT:__newindex(key, value)
+   error("don't write in futures")
+end
+function FUTURE_MT:__index(parser_name)
+   return function(...)
+      local p, m = rawget(self, "__path"), self.__module
+      if p then
+         for _, name in ipairs(p) do
+            m = rawget(m, name)
+            if not m then
+               error("Submodule '" .. name .. "' undefined")
+            end
+         end
+      end
+      local f = rawget(m, parser_name)
+      if not f then
+         error("Parser '" .. parser_name .. "' undefined")
+      end
+      return f(...)
+   end
 end
 
 function M.future(module, ...)
-    checks('table')
-    local path = ... and {...}
-    if path then for _, x in ipairs(path) do 
-        assert(type(x)=='string', "Bad future arg")
-    end end
-    local self = { __module = module,
-                   __path   = path }
-    return setmetatable(self, FUTURE_MT)
+   checks("table")
+   local path = ... and { ... }
+   if path then
+      for _, x in ipairs(path) do
+         assert(type(x) == "string", "Bad future arg")
+      end
+   end
+   local self = { __module = module, __path = path }
+   return setmetatable(self, FUTURE_MT)
 end
 
 return M
