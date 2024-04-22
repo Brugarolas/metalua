@@ -23,21 +23,21 @@ local M = {}
 ---@field sym table<string,table<string>>
 ---@field src string
 ---@field posfact position_factory
----@field newstream fun(lx: lexer, src_or_stream: string | table, src_name: string): lexer
+---@field newstream fun(lx: lexer, src_or_stream: string | table, src_name: string): lexer?
 ---@field is_keyword fun(lx: lexer, tk: token, ...: string): string | false
 ---@field extract_short_comment fun(lx: lexer): string, number | nil
 ---@field extract_long_comment fun(lx: lexer): string, number | nil
----@field extract_short_string fun(lx: lexer): string, string | nil
+---@field extract_short_string fun(lx: lexer): string?, string?
 ---@field extract_word fun(lx: lexer): string, number | nil
----@field extract_number fun(lx: lexer): string, number | nil
----@field extract_long_string fun(lx: lexer): string, string | nil
+---@field extract_number fun(lx: lexer): string?, number?
+---@field extract_long_string fun(lx: lexer): string?, string? | nil
 ---@field extract_symbol fun(lx: lexer): string, string | nil
 ---@field peek fun(lx: lexer, n?: number): token
 ---@field next fun(lx: lexer, n?: number): token
 ---@field extract fun(lx: lexer): token
 ---@field kill fun(lx: lexer): nil
 ---@field clone fun(lx: lexer): lexer
----@field check fun(lx: lexer): string | nil
+---@field check fun(lx: lexer, ...): string | nil
 ---@field add fun(lx: lexer, keyword: string | string[]): nil
 ---@field sync fun(lx: lexer): nil
 local lexer = { alpha = {}, sym = {} }
@@ -118,7 +118,7 @@ end
 
 ---get the position of a given offset.
 ---@param offset number
----@return position_factory
+---@return position
 function MT.position_factory:get_position(offset)
    assert(offset <= self.max)
    local line2offset = self.line2offset
@@ -134,11 +134,6 @@ function MT.position_factory:get_position(offset)
       right = #line2offset
    end
    while true do
-      -- print ("  trying lines "..left.."/"..right..", offsets "..line2offset[left]..
-      --        "/"..line2offset[right].." for offset "..offset)
-      -- assert(line2offset[left]<=offset)
-      -- assert(offset<line2offset[right])
-      -- assert(left<right)
       if left + 1 == right then
          break
       end
@@ -149,16 +144,13 @@ function MT.position_factory:get_position(offset)
          right = middle
       end
    end
-   -- assert(left+1==right)
-   -- printf("found that offset %d is between %d and %d, hence on line %d",
-   --    offset, line2offset[left], line2offset[right], left)
    local line = left
    local column = offset - line2offset[line] + 1
    self.last_left = left
    return M.new_position(line, column, offset, self.src_name)
 end
 
----@class lineinfo: lexer
+---@class lineinfo
 ---@field first position
 ---@field last position
 ---Lineinfo: represent a node's range in a source file;
@@ -197,7 +189,7 @@ function MT.lineinfo:__tostring()
    )
 end
 
----@class token: lexer
+---@class token
 ---Token: atomic Lua language element, with a tag, a content,
 ---and some lineinfo relating it to its original source.
 ---@field tag string
@@ -220,7 +212,7 @@ function MT.token:__tostring()
    return string.format("`%s %q", self.tag, self[1])
 end
 
----@class comment: lexer
+---@class comment
 ---Comment: series of comment blocks with associated lineinfo.
 ---To be attached to the tokens just before and just after them.
 ---@field lineinfo lineinfo
@@ -483,7 +475,7 @@ function lexer:extract_word()
 end
 
 ---Extract Number.
----@return string, number | nil
+---@return string?, number?
 function lexer:extract_number()
    local j = self.src:match(self.patterns.number_hex, self.i)
    if j then
@@ -513,7 +505,8 @@ function lexer:extract_number()
    return "Number", n
 end
 
--- Extract long string.
+---Extract long string.
+---@return string?, string?
 function lexer:extract_long_string()
    local _, content, j = self.src:match(self.patterns.long_string, self.i)
    if j then
@@ -522,7 +515,8 @@ function lexer:extract_long_string()
    end
 end
 
--- Extract symbol.
+---Extract symbol.
+---@return string, string?
 function lexer:extract_symbol()
    local k = self.src:sub(self.i, self.i)
    local symk = self.sym[k] -- symbols starting with `k`
@@ -670,7 +664,7 @@ end
 ---Create a new lexstream.
 ---@param src_or_stream string | table
 ---@param name? string
----@return lexer
+---@return lexer?
 function lexer:newstream(src_or_stream, name)
    name = name or "?"
    if type(src_or_stream) == "table" then -- it's a stream
