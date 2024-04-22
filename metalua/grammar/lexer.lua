@@ -219,7 +219,7 @@ end
 ---@field text fun(): string
 new_metatable("comment")
 
----@param lines table
+---@param lines token[]
 ---@return comment
 function M.new_comment(lines)
    local first = lines[1].lineinfo.first
@@ -352,8 +352,7 @@ lexer.extractors = {
    "extract_symbol",
 }
 
----Really extract next token from the raw string
----(and update the index).
+---Really extract next token from the raw string (and update the index).
 ---loc: offset of the position just after spaces and comments
 ---previous_i: offset in src before extraction began
 ---@return token
@@ -595,14 +594,17 @@ function lexer:next(n)
    return a
 end
 
--- Returns an object which saves the stream's current state.
--- FIXME there are more fields than that to save
+---Returns an object which saves the stream's current state.
+---FIXME there are more fields than that to save
+---@alias lexer_state { i: number, peeked: token[] }
+---@return lexer_state
 function lexer:save()
    return { self.i, { unpack(self.peeked) } }
 end
 
--- Restore the stream's state, as saved by method [save].
--- FIXME there are more fields than that to restore
+---Restore the stream's state, as saved by method [save].
+---FIXME there are more fields than that to restore
+---@param s lexer_state
 function lexer:restore(s)
    self.i = s[1]
    self.peeked = s[2]
