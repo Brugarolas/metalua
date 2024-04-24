@@ -29,6 +29,7 @@ local M = { }
 
 M.DEFAULT_CFG = {
     hide_hash      = false; -- Print the non-array part of tables?
+    hide_lineinfo  = false; -- hide lineinfo
     metalua_tag    = true;  -- Use Metalua's backtick syntax sugar?
     fix_indent     = nil;   -- If a number, number of indentation spaces;
                             -- If false, indent to the previous brace.
@@ -98,6 +99,8 @@ function xlen_type.table (adt, cfg, nested)
         for k, v in pairs(adt) do
             if k=="tag" and has_tag then
                 -- this is the tag -> do nothing!
+            elseif k=="lineinfo" and cfg.hide_lineinfo then 
+                -- this is lineinfo -> do nothing!
             elseif type(k)=="number" and k<=alen and math.fmod(k,1)==0 and k>0 then
                 -- array-part pair -> do nothing!
             else
@@ -188,6 +191,8 @@ function acc_type.table(p, adt)
         for k, v in pairs(adt) do
 
             if has_tag and k=='tag' then  -- pass the 'tag' field
+            elseif k=="lineinfo" and p.cfg.hide_lineinfo then 
+                -- pass the 'lineinfo' field
             elseif type(k)=="number" and k<=alen and k>0 and math.fmod(k,1)==0 then
                 -- pass array-part keys (consecutive ints less than `#adt`)
             else -- hash-part keys

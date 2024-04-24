@@ -36,41 +36,14 @@
 --
 --------------------------------------------------------------------------------
 
+local pp       = require 'metalua.pprint'
 local gg       = require 'metalua.grammar.generator'
 
--- TODO: replace splice-aware versions with naive ones, move etensions in ./meta
+-- TODO: replace splice-aware versions with naive ones, move extensions in ./meta
 
 return function(M)
     local _M = gg.future(M)
 
---[[ metaprog-free versions:
-    function M.id(lx)
-        if lx:peek().tag~='Id' then gg.parse_error(lx, "Identifier expected")
-        else return lx:next() end
-    end
-
-    function M.opt_id(lx)
-        if lx:peek().tag~='Id' then return lx:next() else return false end
-    end
-
-    function M.string(lx)
-        if lx:peek().tag~='String' then gg.parse_error(lx, "String expected")
-        else return lx:next() end
-    end
-
-    function M.opt_string(lx)
-        if lx:peek().tag~='String' then return lx:next() else return false end
-    end
-
-    --------------------------------------------------------------------------------
-    -- Converts an identifier into a string. Hopefully one day it'll handle
-    -- splices gracefully, but that proves quite tricky.
-    --------------------------------------------------------------------------------
-    function M.id2string (id)
-        if id.tag == "Id" then id.tag = "String"; return id
-        else error ("Identifier expected: "..table.tostring(id, 'nohash')) end
-    end
---]]
 
     --------------------------------------------------------------------------------
     -- Try to read an identifier (possibly as a splice), or return [false] if no
@@ -115,7 +88,7 @@ return function(M)
             -- +{ `String{ `Index{ `Splice{ -{id[1]} }, `Number 1 } } }
             return { tag="String",  { tag="Index", { tag="Splice", id[1] },
                                       { tag="Number", 1 } } }
-        else error ("Identifier expected: "..table.tostring(id, 'nohash')) end
+        else error ("Identifier expected: "..pp.tostring(id, 'nohash')) end
     end
 
     --------------------------------------------------------------------------------

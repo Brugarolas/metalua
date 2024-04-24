@@ -46,6 +46,7 @@
 
 local M = { }
 
+local pp    = require 'metalua.pprint'
 local lexer = require 'metalua.grammar.lexer'
 
 --------------------------------------------------------------------------------
@@ -63,6 +64,19 @@ function M.gensym (arg)
 end
 
 
+local function parsername(p)
+   if p.name then
+      return p.name
+   elseif type(p[1])=="string" then -- find name based on 1st keyword
+      if #p==1 then p.name=p[1]
+      elseif type(p[#p])=="string" then
+         return  p[1] .. " ... " .. p[#p]
+      else return p[1] .. " ..." end
+   else -- can't find a decent name
+      return  "unnamed_parser"
+   end
+end
+ 
 -------------------------------------------------------------------------------
 -- parser metatable, which maps __call to method parse, and adds some
 -- error tracing boilerplate.
@@ -112,7 +126,7 @@ local function raw_parse_sequence (lx, p)
         else -- Invalid parser definition, this is *not* a parsing error
             error(string.format(
                       "Sequence `%s': element #%i is neither a string nor a parser: %s",
-                      p.name, i, table.tostring(e)))
+                      p.name, i, pp.tostring(e)))
         end
     end
     return r
@@ -617,6 +631,16 @@ function M.list (p)
    -------------------------------------------------------------------
    function p :parse (lx)
 
+      local function empty_list(l) 
+        return (not l) or (l[1] == "")
+      end 
+      
+      if empty_list(self.separators) and empty_list(self.terminators) then
+      -- Invalid parser definition, this is *not* a parsing error
+            assert(false, string.format(
+                      "List `%s': has no separators and no terminators and it will loop forever",
+                     parsername(p)))
+      end
       ------------------------------------------------------
       -- Used to quickly check whether there's a terminator
       -- or a separator immediately ahead
