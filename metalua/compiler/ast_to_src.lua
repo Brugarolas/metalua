@@ -119,6 +119,10 @@ end
 -- Return true iff string `id' is a legal identifier name.
 --------------------------------------------------------------------------------
 local function is_ident(id)
+   -- HACK:
+   if type(id) ~= "string" then
+      return false
+   end
    return string["match"](id, "^[%a_][%w_]*$") and not keywords[id]
 end
 
@@ -128,10 +132,10 @@ end
 -- the innermost node.
 local function is_idx_stack(ast)
    local tag = ast.tag
-   if tag == "Id" then
-      return true
-   elseif tag == "Index" then
+   if tag == "Index" then
       return is_idx_stack(ast[1])
+   elseif tag == "Id" then
+      return true
    else
       return false
    end
@@ -147,7 +151,7 @@ local op_preprec = {
    { "concat" },
    { "add", "sub" },
    { "mul", "div", "mod" },
-   { "unary", "not", "len" },
+   { "unm", "unary", "not", "len" }, ---TODO:
    { "pow" },
    { "index" },
 }
@@ -278,8 +282,8 @@ function M:Set(node)
    if
       lhs[1].tag == "Index"
       and rhs[1].tag == "Function"
-      and rhs[1][1][1][1] == "self"
-      and is_idx_stack(lhs[1][1])
+      and rhs[1][1][1] == "self"
+      and is_idx_stack(lhs)
       and is_ident(lhs[1][2][1])
    then
       local method = lhs[1][2][1]
@@ -298,7 +302,9 @@ function M:Set(node)
       self:list(body, self.nl)
       self:nldedent()
       self:acc("end")
-   elseif rhs[1].tag == "Function" then
+   elseif rhs[1].tag == "Function" and is_idx_stack(lhs) then
+      print("here?")
+      print(is_idx_stack(lhs))
       -- | `Set{ { lhs }, { `Function{ params, body } } } if is_idx_stack (lhs) ->
       --    -- ``function foo(...) ... end'' --
       local params = rhs[1][1]
@@ -477,33 +483,28 @@ function M:Localrec(node, lhs, rhs)
 end
 
 function M:Call(node, f)
-   -- single string or table literal arg ==> no need for parentheses. --
-   local parens
-   if node[2].tag == "String" or node[2].tag == "Table" then
-      parens = false
-   else
-      parens = true
-   end
    self:node(f)
-   self:acc(parens and "(" or " ")
+   self:acc("(")
    self:list(node, ", ", 2) -- skip `f'.
-   self:acc(parens and ")")
+   self:acc(")")
 end
 
 function M:Invoke(node, f, method)
    -- single string or table literal arg ==> no need for parentheses. --
-   local parens
-   if node[3].tag == "String" or node[3].tag == "Table" then
-      parens = false
-   else
-      parens = true
-   end
+   -- local parens
+   -- if node[2].tag == "String" or node[2].tag == "Table" then
+   --    parens = false
+   -- else
+   --    parens = true
+   -- end
    self:node(f)
    self:acc(":")
    self:acc(method[1])
-   self:acc(parens and "(" or " ")
+   self:acc("(")
+   -- self:acc(parens and "(" or " ")
    self:list(node, ", ", 3) -- Skip args #1 and #2, object and method name.
-   self:acc(parens and ")")
+   -- self:acc(parens and ")")
+   self:acc(")")
 end
 
 function M:Return(node)
@@ -595,17 +596,17 @@ end
 
 -- TODO: understand associatitivity
 function M:Op(node, op, a, b)
-   if op == "not" and (node[2][1][1] == "eq" or node[2][1][1][1]) then ---TODO:???
+   if op == "not" and (node[2][1][1] == "eq") then ---TODO:???
       op, a, b = "ne", node[2][1][2], node[2][1][3]
    end
    if b then -- binary operator.
       local left_paren, right_paren
-      if a.tag == "Op" and op_prec[op] >= op_prec[a[1][1]] then
+      if a.tag == "Op" and op_prec[op] >= op_prec[a[1]] then
          left_paren = true
       else
          left_paren = false
       end
-      if b.tag == "Op" and op_prec[op] >= op_prec[b[1][1]] then
+      if b.tag == "Op" and op_prec[op] >= op_prec[b[1]] then
          right_paren = true
       else
          right_paren = false
@@ -621,7 +622,7 @@ function M:Op(node, op, a, b)
       self:acc(right_paren and ")")
    else -- unary operator.
       local paren
-      if a.tag == "Op" and op_prec[op] >= op_prec[a[1][1]] then
+      if a.tag == "Op" and op_prec[op] >= op_prec[a[1]] then
          paren = true
       else
          paren = false
@@ -639,7 +640,7 @@ function M:Paren(_, content)
    self:acc(")")
 end
 
-function M:Index(_, table, key)
+function M:Index(node, table, key)
    local paren_table
    if table.tag == "Op" and op_prec[table[1][1]] < op_prec.index then
       paren_table = true
@@ -651,15 +652,15 @@ function M:Index(_, table, key)
    self:node(table)
    self:acc(paren_table and ")")
 
-   -- ``table.key''
-   if is_ident(key[1]) then
-      self:acc(".")
-      self:acc(key[1])
-   else
-      -- ``table [key]''
+   -- ``table [key]''
+   if key.tag == "True" or key.tag == "False" or (not is_ident(key[1])) then
       self:acc("[")
       self:node(key)
       self:acc("]")
+   else
+      -- ``table.key''
+      self:acc(".")
+      self:acc(key[1])
    end
 end
 
