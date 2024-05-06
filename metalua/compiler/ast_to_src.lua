@@ -44,6 +44,7 @@ function M:run(ast)
    end
    self._acc = {}
    self:node(ast)
+   pp.print(self._acc[121])
    return table.concat(self._acc)
 end
 
@@ -120,9 +121,9 @@ end
 --------------------------------------------------------------------------------
 local function is_ident(id)
    -- HACK:
-   if type(id) ~= "string" then
-      return false
-   end
+   -- if type(id) ~= "string" then
+   --    return false
+   -- end
    return string["match"](id, "^[%a_][%w_]*$") and not keywords[id]
 end
 
@@ -212,7 +213,7 @@ function M:node(node)
       else -- No appropriate method, fall back to splice dumping.
          -- This cannot happen in a plain Lua AST.
          self:acc(" -{ ")
-         self:acc(pp.tostring(node, { metalua_tag = 1, hide_hash = 1 }), 80)
+         self:acc(pp.tostring(node, { metalua_tag = 1, hide_hash = 1 }))
          self:acc(" }")
       end
    end
@@ -372,7 +373,7 @@ function M:While(_, cond, body)
    self:acc("end")
 end
 
-function M:Repeat(node, body, cond)
+function M:Repeat(_, body, cond)
    self:acc("repeat")
    self:nlindent()
    self:list(body, self.nl)
@@ -461,7 +462,7 @@ function M:Local(node, lhs, rhs, annots)
    end
 end
 
-function M:Localrec(node, lhs, rhs)
+function M:Localrec(_, lhs, rhs)
    -- ``local function name() ... end'' --
    self:acc("local function ")
    self:acc(lhs[1][1])
@@ -518,17 +519,17 @@ M.False = "false"
 M.True = "true"
 M.Dots = "..."
 
-function M:Number(node, n)
+function M:Number(_, n)
    self:acc(tostring(n))
 end
 
-function M:String(node, str)
+function M:String(_, str)
    -- format "%q" prints '\n' in an umpractical way IMO,
    -- so this is fixed with the :gsub( ) call.
    self:acc(string.format("%q", str):gsub("\\\n", "\\n"))
 end
 
-function M:Function(node, params, body, annots)
+function M:Function(_, params, body, annots)
    self:acc("function(")
    if annots then
       local n = #params
@@ -640,7 +641,7 @@ function M:Paren(_, content)
    self:acc(")")
 end
 
-function M:Index(node, table, key)
+function M:Index(_, table, key)
    local paren_table
    if table.tag == "Op" and op_prec[table[1][1]] < op_prec.index then
       paren_table = true
@@ -653,14 +654,15 @@ function M:Index(node, table, key)
    self:acc(paren_table and ")")
 
    -- ``table [key]''
-   if key.tag == "True" or key.tag == "False" or (not is_ident(key[1])) then
+   pp.print(key[1])
+   if key.tag == "String" and is_ident(key[1]) then
+      self:acc(".")
+      self:acc(key[1])
+   else
       self:acc("[")
       self:node(key)
       self:acc("]")
-   else
       -- ``table.key''
-      self:acc(".")
-      self:acc(key[1])
    end
 end
 
@@ -675,6 +677,30 @@ function M:Id(node, name)
    end
 end
 
+function M:Goto(node, name)
+   self:acc("goto ")
+   if type(name) == "string" then
+      self:Id(node, name)
+   else
+      print(node[1][1])
+      self:Id(node[1], node[1][1])
+   end
+   self:nl()
+end
+--
+function M:Label(node, name)
+   -- print(name_)
+   self:acc("::")
+   if type(name) == "string" then
+      self:Id(node, name)
+   else
+      print(node[1][1])
+      self:Id(node[1], node[1][1])
+   end
+   -- self:Id(node, name)
+   self:acc("::")
+   self:nl()
+end
 -- M.TDyn    = '*'
 -- M.TDynbar = '**'
 -- M.TPass   = 'pass'
@@ -752,7 +778,9 @@ end
 -- end
 
 -- print(M.run(+{stat: local function add(a, b) local c = a + b; return add(a,c) end}))
-
+-- print("1")
+-- pp.print(+{ expr: r[#r + 1] })
+-- pp.print(M.run(+{ expr: r[#r + 1] }))
 return function(x)
    return M.run(x)
 end
