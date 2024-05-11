@@ -79,7 +79,7 @@
 -- TODO: cfg.ntmp isn't reset as often as it could. I'm not even sure
 --       the corresponding locals are declared.
 
-
+-- TODO: fix the extra label from each case
 local gg  = require 'metalua.grammar.generator'
 local pp  = require 'metalua.pprint'
 
@@ -366,9 +366,15 @@ local function match_builder (term_seq, cases)
   return cfg.code
 end
 
-----------------------------------------------------------------------
+
+-- TODO: clean
+-- TODO: multiple args?
+local function xmatch_builder (term_seq, id, cases)
+   local ast = match_builder(term_seq, cases)
+   return `Set{ `Id{id}, { `Function{ term_seq, { ast } } } }
+end
+
 -- Syntactical front-end
-----------------------------------------------------------------------
 
 local function extend(M)
 
@@ -397,7 +403,15 @@ local function extend(M)
                   match_cases_list_parser,
                   "end",
                   builder = |x| match_builder( x[1], x[3] ) }
+    M.stat:add{ name = "xmatch statement",
+                  "match",
+                  _M.expr_list,
+                  "with",
+                  _M.id,
+                   gg.optkeyword "|",
+                  match_cases_list_parser,
+                  "end",
+                  builder = |x| xmatch_builder( x[1],x[2], x[4] ) }
 end
 
 return extend
-
