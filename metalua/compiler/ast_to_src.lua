@@ -16,12 +16,11 @@
 --     Fabien Fleutot - API and implementation
 --
 -------------------------------------------------------------------------------
-
+pp = require("metalua.pprint")
 local M = {}
 M.__index = M
 
 --- TODO: restore comments!
-local pp = require("metalua.pprint")
 
 -- Instanciate a new AST->source synthetizer
 function M.new()
@@ -44,7 +43,6 @@ function M:run(ast)
    end
    self._acc = {}
    self:node(ast)
-   pp.print(self._acc[121])
    return table.concat(self._acc)
 end
 
@@ -189,14 +187,18 @@ local op_symbol = {
    len = "# ",
    unm = "-",
 }
-require("moon.all")
 -- Accumulate the source representation of AST `node' in
 -- the synthetizer. Most of the work is done by delegating to
 -- the method having the name of the AST tag.
 -- If something can't be converted to normal sources, it's
 -- instead dumped as a `-{ ... }' splice in the source accumulator.
 function M:node(node)
-   -- p(node)
+   -- pp.print(node)
+   -- pp.print(node.lineinfo.first.comments)
+   -- pp.print(node.lineinfo.last.comments)
+   -- if node.lineinfo.first.comments then
+   --    M.first_comment(self, node)
+   -- end
    assert(self ~= M and self._acc)
    if node == nil then
       self:acc("<<error>>")
@@ -216,6 +218,25 @@ function M:node(node)
          self:acc(pp.tostring(node, { metalua_tag = 1, hide_hash = 1 }))
          self:acc(" }")
       end
+   end
+   -- if node.lineinfo.last.comments then
+   --    M.last_comment(self, node)
+   -- end
+end
+
+-- TODO: cache comments already printed
+
+M.first_comment = function(self, node)
+   for _, comment in ipairs(node.lineinfo.first.comments) do
+      self:acc("--" .. comment[1])
+      self:nl()
+   end
+end
+
+M.last_comment = function(self, node)
+   for _, comment in ipairs(node.lineinfo.last.comments) do
+      self:acc("--" .. comment[1])
+      self:nl()
    end
 end
 
@@ -304,8 +325,6 @@ function M:Set(node)
       self:nldedent()
       self:acc("end")
    elseif rhs[1].tag == "Function" and is_idx_stack(lhs) then
-      print("here?")
-      print(is_idx_stack(lhs))
       -- | `Set{ { lhs }, { `Function{ params, body } } } if is_idx_stack (lhs) ->
       --    -- ``function foo(...) ... end'' --
       local params = rhs[1][1]
@@ -654,7 +673,6 @@ function M:Index(_, table, key)
    self:acc(paren_table and ")")
 
    -- ``table [key]''
-   pp.print(key[1])
    if key.tag == "String" and is_ident(key[1]) then
       self:acc(".")
       self:acc(key[1])
@@ -682,105 +700,20 @@ function M:Goto(node, name)
    if type(name) == "string" then
       self:Id(node, name)
    else
-      print(node[1][1])
       self:Id(node[1], node[1][1])
    end
-   self:nl()
 end
---
+
 function M:Label(node, name)
-   -- print(name_)
    self:acc("::")
    if type(name) == "string" then
       self:Id(node, name)
    else
-      print(node[1][1])
       self:Id(node[1], node[1][1])
    end
-   -- self:Id(node, name)
    self:acc("::")
-   self:nl()
 end
--- M.TDyn    = '*'
--- M.TDynbar = '**'
--- M.TPass   = 'pass'
--- M.TField  = 'field'
--- M.TIdbar  = M.TId
--- M.TReturn = M.Return
---
---
--- function M:TId (node, name) self:acc(name) end
---
---
--- function M:TCatbar(node, te, tebar)
---     self:acc'('
---     self:node(te)
---     self:acc'|'
---     self:tebar(tebar)
---     self:acc')'
--- end
---
--- function M:TFunction(node, p, r)
---     self:tebar(p)
---     self:acc '->'
---     self:tebar(r)
--- end
---
--- function M:TTable (node, default, pairs)
---     self:acc '['
---     self:list (pairs, ', ')
---     if default.tag~='TField' then
---         self:acc '|'
---         self:node (default)
---     end
---     self:acc ']'
--- end
---
--- function M:TPair (node, k, v)
---     self:node (k)
---     self:acc '='
---     self:node (v)
--- end
---
--- function M:TIdbar (node, name)
---     self :acc (name)
--- end
---
--- function M:TCatbar (node, a, b)
---     self:node(a)
---     self:acc ' ++ '
---     self:node(b)
--- end
---
--- function M:tebar(node)
---     if node.tag then self:node(node) else
---         self:acc '('
---         self:list(node, ', ')
---         self:acc ')'
---     end
--- end
---
--- function M:TUnkbar(node, name)
---     self:acc '~~'
---     self:acc (name)
--- end
---
--- function M:TUnk(node, name)
---     self:acc '~'
---     self:acc (name)
--- end
---
--- for name, tag in pairs{ const='TConst', var='TVar', currently='TCurrently', just='TJust' } do
---     M[tag] = function(self, node, te)
---         self:acc (name..' ')
---         self:node(te)
---     end
--- end
 
--- print(M.run(+{stat: local function add(a, b) local c = a + b; return add(a,c) end}))
--- print("1")
--- pp.print(+{ expr: r[#r + 1] })
--- pp.print(M.run(+{ expr: r[#r + 1] }))
 return function(x)
    return M.run(x)
 end

@@ -19,24 +19,26 @@
 
 -- Export all public APIs from sub-modules, squashed into a flat spacename
 
-local MT = { __type='metalua.compiler.parser' }
+local MT = { __type = "metalua.compiler.parser" }
 
-local MODULE_REL_NAMES = { "annot.grammar", "expr", "meta", "misc",
-                           "stat", "table", "ext" }
+local MODULE_REL_NAMES = { "expr", "meta", "misc", "stat", "table", "ext" }
 
 local function new()
-    local M = {
-        lexer = require "metalua.compiler.parser.lexer" ();
-        extensions = { } }
-    for _, rel_name in ipairs(MODULE_REL_NAMES) do
-        local abs_name = "metalua.compiler.parser."..rel_name
-        local extender = require (abs_name)
-        if not M.extensions[abs_name] then
-            if type (extender) == 'function' then extender(M) end
-            M.extensions[abs_name] = extender
-        end
-    end
-    return setmetatable(M, MT)
+   local M = {
+      lexer = require("metalua.compiler.parser.lexer")(),
+      extensions = {},
+   }
+   for _, rel_name in ipairs(MODULE_REL_NAMES) do
+      local abs_name = "metalua.compiler.parser." .. rel_name
+      local extender = require(abs_name)
+      if not M.extensions[abs_name] then
+         if type(extender) == "function" then
+            extender(M)
+         end
+         M.extensions[abs_name] = extender
+      end
+   end
+   return setmetatable(M, MT)
 end
 
 return { new = new }

@@ -15,9 +15,6 @@
 -- Contributors:
 --     Fabien Fleutot - API and implementation
 --
---------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
 --
 -- Exported API:
 -- * [M.table_bracket_field()]
@@ -25,53 +22,51 @@
 -- * [M.table_content()]
 -- * [M.table()]
 --
--- KNOWN BUG: doesn't handle final ";" or "," before final "}"
+--  BUG: doesn't handle final ";" or "," before final "}"
 --
 --------------------------------------------------------------------------------
 
-local gg  = require 'metalua.grammar.generator'
+local gg = require("metalua.grammar.generator")
 
 return function(M)
+   M.table = {}
+   local _table = gg.future(M.table)
+   local _expr = gg.future(M).expr
 
-    M.table = { }
-    local _table = gg.future(M.table)
-    local _expr  = gg.future(M).expr
+   -- `[key] = value` table field definition
+   M.table.bracket_pair = gg.sequence({ "[", _expr, "]", "=", _expr, builder = "Pair" })
 
-    --------------------------------------------------------------------------------
-    -- `[key] = value` table field definition
-    --------------------------------------------------------------------------------
-    M.table.bracket_pair = gg.sequence{ "[", _expr, "]", "=", _expr, builder = "Pair" }
+   ---table element parser: list value, `id = value` pair or `[value] = value` pair.
+   ---@param lx lexer
+   ---@return AST
+   function M.table.element(lx)
+      if lx:is_keyword(lx:peek(), "[") then
+         return M.table.bracket_pair(lx)
+      end
+      local e = M.expr(lx)
+      if not lx:is_keyword(lx:peek(), "=") then
+         return e
+      end
+      lx:next() -- skip the "="
+      local key = M.id2string(e) -- will fail on non-identifiers
+      local val = M.expr(lx)
+      local r = { tag = "Pair", key, val }
+      r.lineinfo = { first = key.lineinfo.first, last = val.lineinfo.last }
+      return r
+   end
 
-    --------------------------------------------------------------------------------
-    -- table element parser: list value, `id = value` pair or `[value] = value` pair.
-    --------------------------------------------------------------------------------
-    function M.table.element (lx)
-        if lx :is_keyword (lx :peek(), "[") then return M.table.bracket_pair(lx) end
-        local e = M.expr (lx)
-        if not lx :is_keyword (lx :peek(), "=") then return e end
-        lx :next(); -- skip the "="
-        local key = M.id2string(e) -- will fail on non-identifiers
-        local val = M.expr(lx)
-        local r = { tag="Pair", key, val }
-        r.lineinfo = { first = key.lineinfo.first, last = val.lineinfo.last }
-        return r
-    end
+   -- table constructor, without enclosing braces; returns a full table object
+   M.table.content = gg.list({
+      -- eta expansion to allow patching the element definition
+      primary = _table.element,
+      separators = { ",", ";" },
+      terminators = "}",
+      builder = "Table",
+   })
 
-    -----------------------------------------------------------------------------
-    -- table constructor, without enclosing braces; returns a full table object
-    -----------------------------------------------------------------------------
-    M.table.content  = gg.list {
-        -- eta expansion to allow patching the element definition
-        primary     =  _table.element,
-        separators  = { ",", ";" },
-        terminators = "}",
-        builder     = "Table" }
+   -- complete table constructor including [{...}]
+   -- TODO: beware, stat and expr use only table.content, this can't be patched.
+   M.table.table = gg.sequence({ "{", _table.content, "}", builder = unpack })
 
-    --------------------------------------------------------------------------------
-    -- complete table constructor including [{...}]
-    --------------------------------------------------------------------------------
-    -- TODO beware, stat and expr use only table.content, this can't be patched.
-    M.table.table = gg.sequence{ "{", _table.content, "}", builder = unpack }
-
-    return M
+   return M
 end

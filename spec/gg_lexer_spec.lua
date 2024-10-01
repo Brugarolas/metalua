@@ -1,8 +1,4 @@
-local describe = require("busted").describe
-local assert = require("busted").assert
-local it = require("busted").it
-local pp = require("metalua.pprint").print
-local M = require("mlua.grammar.lexer")
+local M = require("metalua.grammar.lexer")
 
 describe("lexer", function()
    local lexer = M.lexer

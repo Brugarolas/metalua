@@ -75,10 +75,13 @@ function M.run()
       until #line > 0
       lx = mlc:src_to_lexstream(src)
       success, ast = pcall(mlc.lexstream_to_ast, mlc, lx)
+      -- ast = { tag = "Return", { tag = "Function", lineinfo = ast.lineinfo, { { tag = "Dots" } }, ast } }
+      -- ast = { ast }
       if success then
          success, f = pcall(mlc.ast_to_function, mlc, ast, "=stdin")
          if success then
             results = { xpcall(f, debug.traceback) }
+            -- results = { f() }
             success = table.remove(results, 1)
             if success then
                -- Success!

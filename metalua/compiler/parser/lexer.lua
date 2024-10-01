@@ -21,23 +21,59 @@
 -- Generate a new lua-specific lexer, derived from the generic lexer.
 ----------------------------------------------------------------------
 
-local generic_lexer = require 'metalua.grammar.lexer'
+local generic_lexer = require("metalua.grammar.lexer")
 
 return function()
-    local lexer = generic_lexer.lexer :clone()
+   local lexer = generic_lexer.lexer:clone()
 
-    local keywords = {
-        "and", "break", "do", "else", "elseif",
-        "end", "false", "for", "function",
-        "goto", -- Lua5.2
-        "if",
-        "in", "local", "nil", "not", "or", "repeat",
-        "return", "then", "true", "until", "while",
-        "...", "..", "==", ">=", "<=", "~=",
-        "::", -- Lua5,2
-        "+{", "-{" } -- Metalua
+   local keywords = {
+      "and",
+      "break",
+      "do",
+      "else",
+      "elseif",
+      "end",
+      "false",
+      "for",
+      "function",
+      "if",
+      "in",
+      "local",
+      "nil",
+      "not",
+      "or",
+      "repeat",
+      "return",
+      "then",
+      "true",
+      "until",
+      "while",
+      "...",
+      "..",
+      "==",
+      ">=",
+      "<=",
+      "~=",
+      "+{",
+      "-{",
 
-    for _, w in ipairs(keywords) do lexer :add (w) end
+      -- Lua5.2
+      "goto",
+      "::",
 
-    return lexer
+      -- Lua5.3
+      "//",
+      "&",
+      "~",
+      ">>",
+      "<<",
+      "~",
+      "|",
+   }
+
+   for _, w in ipairs(keywords) do
+      lexer:add(w)
+   end
+
+   return lexer
 end

@@ -1,3 +1,4 @@
+#!/usr/bin/luajit
 -------------------------------------------------------------------------------
 -- Copyright (c) 2006-2013 Fabien Fleutot and others.
 --
@@ -17,9 +18,20 @@
 --
 -------------------------------------------------------------------------------
 
+if type(jit) == "table" then
+   print(jit.version) --LuaJIT 2.0.2
+end
+
+-- Survive lack of checks
+if not pcall(require, "checks") then
+   function package.preload.checks()
+      function checks() end
+   end
+end
+
 -- Main file for the metalua executable
-require("metalua.loader") -- load *.mlue files
-require("metalua.compiler.globals") -- metalua-aware loadstring, dofile etc.
+require("metalua.loader") -- load *.mlua files
+-- og = require("metalua.compiler.globals") -- metalua-aware loadstring, dofile etc.
 
 local alt_getopt = require("alt_getopt")
 local pp = require("metalua.pprint")
@@ -123,7 +135,8 @@ function M.main(...)
 
    -------------------------------------------------------------------
    -- If nothing to do, run REPL loop
-   if not next(cfg.chunks) and not cfg.interactive then
+   -- HACK:
+   if not next(cfg.chunks) and not cfg.file and not cfg.interactive then
       verb_print("Nothing to compile nor run, force interactive loop")
       cfg.interactive = true
    end
@@ -131,9 +144,11 @@ function M.main(...)
    -------------------------------------------------------------------
    -- Run if asked to, or if no --output has been given
    -- if cfg.run==false it's been *forced* to false, don't override.
+   -- HACK:
    if not cfg.run and not cfg.output then
       verb_print("No output file specified; I'll run the program")
       cfg.run = true
+      -- cfg.interactive = true
    end
 
    local code = {}
@@ -141,8 +156,15 @@ function M.main(...)
    -------------------------------------------------------------------
    -- Get ASTs from sources
 
+   if cfg.file then
+      for i, x in ipairs(cfg.file) do
+         table.insert(cfg.chunks, { tag = "file", x })
+      end
+   end
+
    local last_file_idx
    for i, x in ipairs(cfg.chunks) do
+      pp.print(x)
       local compiler = mlc.new()
       local tag, val = x.tag, x[1]
       verb_print("Compiling %s", x)
@@ -153,8 +175,15 @@ function M.main(...)
          ast = compiler:src_to_ast(val)
       elseif tag == "file" then
          ast = compiler:srcfile_to_ast(val)
+         pp.print(ast)
          -- Isolate each file in a separate fenv
-         ast = { tag = "Call", { tag = "Function", { { tag = "Dots" } }, ast }, { tag = "Dots" } }
+         -- HACK:
+         ast = {
+            tag = "Call",
+            lineinfo = ast.lineinfo,
+            { tag = "Function", lineinfo = ast.lineinfo, { { tag = "Dots" } }, ast },
+            { tag = "Dots" },
+         }
          ast.source = "@" .. val
          code.source = "@" .. val
          last_file_idx = i
@@ -169,12 +198,16 @@ function M.main(...)
       ast.origin = x
       table.insert(code, ast)
    end
+   if #code > 0 then
+      code.tag = "Chunk"
+      code.lineinfo = code[#code].lineinfo -- HACK:
+   end
    -- The last file returns the whole chunk's result
    if last_file_idx then
       -- transform  +{ (function(...) -{ast} end)(...) }
       -- into   +{ return (function(...) -{ast} end)(...) }
       local prv_ast = code[last_file_idx]
-      local new_ast = { tag = "Return", prv_ast }
+      local new_ast = { tag = "Return", lineinfo = prv_ast.lineinfo, prv_ast }
       new_ast.source, new_ast.origin, prv_ast.source, prv_ast.origin = prv_ast.source, prv_ast.origin, nil, nil
       code[last_file_idx] = new_ast
    end
@@ -204,16 +237,17 @@ function M.main(...)
    if cfg["print-src"] then
       verb_print("Resulting sources:")
       for _, x in ipairs(code) do
-         printf("--- Source From %s: ---", table.tostring(x.source, "nohash"))
+         pp.printf("--- Source From %s: ---", pp.tostring(x.source, "nohash"))
          if x.origin and x.origin.tag == "File" then
             x = x[1][1][2]
          end
-         print(compiler:ast2string(x))
+         print(compiler:ast_to_src(x))
       end
    end
 
    -- TODO: canonize/check AST
 
+   -- local bytecode = generate(code)
    local bytecode = compiler:ast_to_bytecode(code)
    code = nil
 
@@ -251,7 +285,9 @@ function M.main(...)
    -- Run compiled code
    if cfg.run then
       verb_print("Running")
-      local f = compiler:bytecode_to_function(bytecode)
+      -- local f = compiler:src_to_function(bytecode)
+      -- local f = og.lua.loadstring(bytecode)
+      local f = loadstring(bytecode)
       bytecode = nil
       -- FIXME: isolate execution in a ring
       -- FIXME: check for failures
@@ -259,7 +295,7 @@ function M.main(...)
          return errmsg .. "\n" .. debug.traceback("", 2) .. "\n"
       end
       local function g()
-         return f(unpack(cfg.params))
+         return f and f(unpack(cfg.params))
       end
       local st, msg = xpcall(g, print_traceback)
       if not st then

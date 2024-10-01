@@ -56,33 +56,32 @@
 --   luaU:ttype(o) (from lobject.h)
 ----------------------------------------------------------------------]]
 
-local luaP = require 'metalua.compiler.bytecode.lopcodes'
+local luaP = require("metalua.compiler.bytecode.lopcodes")
 
-local M = { }
+local M = {}
 
-local format = { }
-format.header = string.dump(function()end):sub(1, 12)
-format.little_endian, format.int_size, 
-format.size_t_size,   format.instr_size, 
-format.number_size,   format.integral = format.header:byte(7, 12)
-format.little_endian = format.little_endian~=0
-format.integral      = format.integral     ~=0
+local format = {}
+format.header = string.dump(function() end):sub(1, 12)
+format.little_endian, format.int_size, format.size_t_size, format.instr_size, format.number_size, format.integral =
+   format.header:byte(7, 12)
+format.little_endian = format.little_endian ~= 0
+format.integral = format.integral ~= 0
 
-assert(format.integral or format.number_size==8, "Number format not supported by dumper")
+assert(format.integral or format.number_size == 8, "Number format not supported by dumper")
 assert(format.little_endian, "Big endian architectures not supported by dumper")
 
 --requires luaP
-local luaU = { }
+local luaU = {}
 M.luaU = luaU
 
 luaU.format = format
 
 -- constants used by dumper
-luaU.LUA_TNIL     = 0
+luaU.LUA_TNIL = 0
 luaU.LUA_TBOOLEAN = 1
-luaU.LUA_TNUMBER  = 3 -- (all in lua.h)
-luaU.LUA_TSTRING  = 4
-luaU.LUA_TNONE   = -1
+luaU.LUA_TNUMBER = 3 -- (all in lua.h)
+luaU.LUA_TSTRING = 4
+luaU.LUA_TNONE = -1
 
 -- definitions for headers of binary files
 --luaU.LUA_SIGNATURE = "\27Lua"   -- binary files start with "<esc>Lua"
@@ -103,48 +102,58 @@ luaU.LUA_TNONE   = -1
 -- scripts only has a 'value' field, no 'tt' field (native types used)
 ------------------------------------------------------------------------
 function luaU:ttype(o)
-  local tt = type(o.value)
-  if     tt == "number"  then return self.LUA_TNUMBER
-  elseif tt == "string"  then return self.LUA_TSTRING
-  elseif tt == "nil"     then return self.LUA_TNIL
-  elseif tt == "boolean" then return self.LUA_TBOOLEAN
-  else
-    return self.LUA_TNONE  -- the rest should not appear
-  end
+   local tt = type(o.value)
+   if tt == "number" then
+      return self.LUA_TNUMBER
+   elseif tt == "string" then
+      return self.LUA_TSTRING
+   elseif tt == "nil" then
+      return self.LUA_TNIL
+   elseif tt == "boolean" then
+      return self.LUA_TBOOLEAN
+   else
+      return self.LUA_TNONE -- the rest should not appear
+   end
 end
 
-------------------------------------------------------------------------
--- create a chunk writer that writes to a string
--- * returns the writer function and a table containing the string
--- * to get the final result, look in buff.data
-------------------------------------------------------------------------
+---create a chunk writer that writes to a string
+---returns the writer function and a table containing the string
+---to get the final result, look in buff.data
+---@return fun(s: string, buff: table), table
 function luaU:make_setS()
-  local buff = {}
-        buff.data = ""
-  local writer =
-    function(s, buff)  -- chunk writer
-      if not s then return end
-      buff.data = buff.data..s
-    end
-  return writer, buff
+   local buff = {}
+   buff.data = ""
+   local writer = function(s, buff) -- chunk writer
+      if not s then
+         return
+      end
+      buff.data = buff.data .. s
+   end
+   return writer, buff
 end
 
-------------------------------------------------------------------------
--- create a chunk writer that writes to a file
--- * returns the writer function and a table containing the file handle
--- * if a nil is passed, then writer should close the open file
-------------------------------------------------------------------------
+---create a chunk writer that writes to a file
+---returns the writer function and a table containing the file handle
+---if a nil is passed, then writer should close the open file
+---@param filename string
+---@return fun(s: string, buff: file*)? , table?
 function luaU:make_setF(filename)
-  local buff = {}
-        buff.h = io.open(filename, "wb")
-  if not buff.h then return nil end
-  local writer =
-    function(s, buff)  -- chunk writer
-      if not buff.h then return end
-      if not s then buff.h:close(); return end
+   local buff = {}
+   buff.h = io.open(filename, "wb")
+   if not buff.h then
+      return nil
+   end
+   local writer = function(s, buff) -- chunk writer
+      if not buff.h then
+         return
+      end
+      if not s then
+         buff.h:close()
+         return
+      end
       buff.h:write(s)
-    end
-  return writer, buff
+   end
+   return writer, buff
 end
 
 -----------------------------------------------------------------------
@@ -153,29 +162,34 @@ end
 -- * supports +/- Infinity, but not denormals or NaNs
 -----------------------------------------------------------------------
 function luaU:from_double(x)
-  local function grab_byte(v)
-    return math.floor(v / 256),
-           string.char(math.mod(math.floor(v), 256))
-  end
-  local sign = 0
-  if x < 0 then sign = 1; x = -x end
-  local mantissa, exponent = math.frexp(x)
-  if x == 0 then -- zero
-    mantissa, exponent = 0, 0
-  elseif x == 1/0 then
-    mantissa, exponent = 0, 2047
-  else
-    mantissa = (mantissa * 2 - 1) * math.ldexp(0.5, 53)
-    exponent = exponent + 1022
-  end
-  local v, byte = "" -- convert to bytes
-  x = mantissa
-  for i = 1,6 do
-    x, byte = grab_byte(x); v = v..byte -- 47:0
-  end
-  x, byte = grab_byte(exponent * 16 + x); v = v..byte -- 55:48
-  x, byte = grab_byte(sign * 128 + x); v = v..byte -- 63:56
-  return v
+   local function grab_byte(v)
+      return math.floor(v / 256), string.char(math.floor(v) % 256)
+   end
+   local sign = 0
+   if x < 0 then
+      sign = 1
+      x = -x
+   end
+   local mantissa, exponent = math.frexp(x)
+   if x == 0 then -- zero
+      mantissa, exponent = 0, 0
+   elseif x == 1 / 0 then
+      mantissa, exponent = 0, 2047
+   else
+      mantissa = (mantissa * 2 - 1) * math.ldexp(0.5, 53)
+      exponent = exponent + 1022
+   end
+   local v, byte = "" -- convert to bytes
+   x = mantissa
+   for i = 1, 6 do
+      x, byte = grab_byte(x)
+      v = v .. byte -- 47:0
+   end
+   x, byte = grab_byte(exponent * 16 + x)
+   v = v .. byte -- 55:48
+   x, byte = grab_byte(sign * 128 + x)
+   v = v .. byte -- 63:56
+   return v
 end
 
 -----------------------------------------------------------------------
@@ -183,22 +197,29 @@ end
 -- * input value assumed to not overflow, can be signed/unsigned
 -----------------------------------------------------------------------
 function luaU:from_int(x, size)
-  local v = ""
-  x = math.floor(x)
-  if x >= 0 then
-    for i = 1, size do
-      v = v..string.char(math.mod(x, 256)); x = math.floor(x / 256)
-    end
-  else -- x < 0
-    x = -x
-    local carry = 1
-    for i = 1, size do
-      local c = 255 - math.mod(x, 256) + carry
-      if c == 256 then c = 0; carry = 1 else carry = 0 end
-      v = v..string.char(c); x = math.floor(x / 256)
-    end
-  end
-  return v
+   local v = ""
+   x = math.floor(x)
+   if x >= 0 then
+      for i = 1, size do
+         v = v .. string.char(x % 256)
+         x = math.floor(x / 256)
+      end
+   else -- x < 0
+      x = -x
+      local carry = 1
+      for i = 1, size do
+         local c = 255 - x % 256 + carry
+         if c == 256 then
+            c = 0
+            carry = 1
+         else
+            carry = 0
+         end
+         v = v .. string.char(c)
+         x = math.floor(x / 256)
+      end
+   end
+   return v
 end
 
 --[[--------------------------------------------------------------------
@@ -211,7 +232,9 @@ end
 ------------------------------------------------------------------------
 -- dump a block of literal bytes
 ------------------------------------------------------------------------
-function luaU:DumpLiteral(s, D) self:DumpBlock(s, D) end
+function luaU:DumpLiteral(s, D)
+   self:DumpBlock(s, D)
+end
 
 --[[--------------------------------------------------------------------
 -- struct DumpState:
@@ -224,27 +247,29 @@ function luaU:DumpLiteral(s, D) self:DumpBlock(s, D) end
 -- dumps a block of bytes
 -- * lua_unlock(D.L), lua_lock(D.L) deleted
 ------------------------------------------------------------------------
-function luaU:DumpBlock(b, D) D.write(b, D.data) end
+function luaU:DumpBlock(b, D)
+   D.write(b, D.data)
+end
 
 ------------------------------------------------------------------------
 -- dumps a single byte
 ------------------------------------------------------------------------
 function luaU:DumpByte(y, D)
-  self:DumpBlock(string.char(y), D)
+   self:DumpBlock(string.char(y), D)
 end
 
 ------------------------------------------------------------------------
 -- dumps a signed integer of size `format.int_size` (for int)
 ------------------------------------------------------------------------
 function luaU:DumpInt(x, D)
-  self:DumpBlock(self:from_int(x, format.int_size), D)
+   self:DumpBlock(self:from_int(x, format.int_size), D)
 end
 
 ------------------------------------------------------------------------
 -- dumps an unsigned integer of size `format.size_t_size` (for size_t)
 ------------------------------------------------------------------------
 function luaU:DumpSize(x, D)
-  self:DumpBlock(self:from_int(x, format.size_t_size), D)
+   self:DumpBlock(self:from_int(x, format.size_t_size), D)
 end
 
 ------------------------------------------------------------------------
@@ -262,72 +287,74 @@ end
 -- dumps a Lua string
 ------------------------------------------------------------------------
 function luaU:DumpString(s, D)
-  if s == nil then
-    self:DumpSize(0, D)
-  else
-    s = s.."\0"  -- include trailing '\0'
-    self:DumpSize(string.len(s), D)
-    self:DumpBlock(s, D)
-  end
+   if s == nil then
+      self:DumpSize(0, D)
+   else
+      s = s .. "\0" -- include trailing '\0'
+      self:DumpSize(string.len(s), D)
+      self:DumpBlock(s, D)
+   end
 end
 
 ------------------------------------------------------------------------
 -- dumps instruction block from function prototype
 ------------------------------------------------------------------------
 function luaU:DumpCode(f, D)
-  local n = f.sizecode
-  self:DumpInt(n, D)
-  --was DumpVector
-  for i = 0, n - 1 do
-    self:DumpBlock(luaP:Instruction(f.code[i]), D)
-  end
+   local n = f.sizecode
+   self:DumpInt(n, D)
+   --was DumpVector
+   for i = 0, n - 1 do
+      self:DumpBlock(luaP:Instruction(f.code[i]), D)
+   end
 end
 
 ------------------------------------------------------------------------
 -- dumps local variable names from function prototype
 ------------------------------------------------------------------------
 function luaU:DumpLocals(f, D)
-  local n = f.sizelocvars
-  self:DumpInt(n, D)
-  for i = 0, n - 1 do
-    -- Dirty temporary fix: 
-    -- `Stat{ } keeps properly count of the number of local vars,
-    -- but fails to keep score of their debug info (names).
-    -- It therefore might happen that #f.localvars < f.sizelocvars, or
-    -- that a variable's startpc and endpc fields are left unset.
-    -- FIXME: This might not be needed anymore, check the bug report
-    --        by J. Belmonte.
-    local var = f.locvars[i]
-    if not var then break end 
-    -- printf("[DUMPLOCALS] dumping local var #%i = %s", i, table.tostring(var))
-    self:DumpString(var.varname, D)
-    self:DumpInt(var.startpc or 0, D)
-    self:DumpInt(var.endpc or 0, D)
-  end
+   local n = f.sizelocvars
+   self:DumpInt(n, D)
+   for i = 0, n - 1 do
+      -- Dirty temporary fix:
+      -- `Stat{ } keeps properly count of the number of local vars,
+      -- but fails to keep score of their debug info (names).
+      -- It therefore might happen that #f.localvars < f.sizelocvars, or
+      -- that a variable's startpc and endpc fields are left unset.
+      -- FIXME: This might not be needed anymore, check the bug report
+      --        by J. Belmonte.
+      local var = f.locvars[i]
+      if not var then
+         break
+      end
+      -- printf("[DUMPLOCALS] dumping local var #%i = %s", i, table.tostring(var))
+      self:DumpString(var.varname, D)
+      self:DumpInt(var.startpc or 0, D)
+      self:DumpInt(var.endpc or 0, D)
+   end
 end
 
 ------------------------------------------------------------------------
 -- dumps line information from function prototype
 ------------------------------------------------------------------------
 function luaU:DumpLines(f, D)
-  local n = f.sizelineinfo
-  self:DumpInt(n, D)
-  --was DumpVector
-  for i = 0, n - 1 do
-    self:DumpInt(f.lineinfo[i], D)  -- was DumpBlock
-    --print(i, f.lineinfo[i])
-  end
+   local n = f.sizelineinfo
+   self:DumpInt(n, D)
+   --was DumpVector
+   for i = 0, n - 1 do
+      self:DumpInt(f.lineinfo[i], D) -- was DumpBlock
+      --print(i, f.lineinfo[i])
+   end
 end
 
 ------------------------------------------------------------------------
 -- dump upvalue names from function prototype
 ------------------------------------------------------------------------
 function luaU:DumpUpvalues(f, D)
-  local n = f.sizeupvalues
-  self:DumpInt(n, D)
-  for i = 0, n - 1 do
-    self:DumpString(f.upvalues[i], D)
-  end
+   local n = f.sizeupvalues
+   self:DumpInt(n, D)
+   for i = 0, n - 1 do
+      self:DumpString(f.upvalues[i], D)
+   end
 end
 
 ------------------------------------------------------------------------
@@ -335,42 +362,40 @@ end
 -- * nvalue(o) and tsvalue(o) macros removed
 ------------------------------------------------------------------------
 function luaU:DumpConstants(f, D)
-  local n = f.sizek
-  self:DumpInt(n, D)
-  for i = 0, n - 1 do
-    local o = f.k[i]  -- TObject
-    local tt = self:ttype(o)
-    assert (tt >= 0)
-    self:DumpByte(tt, D)
-    if tt == self.LUA_TNUMBER then
-       self:DumpNumber(o.value, D)
-    elseif tt == self.LUA_TSTRING then
-       self:DumpString(o.value, D)
-    elseif tt == self.LUA_TBOOLEAN then
-       self:DumpByte (o.value and 1 or 0, D)
-    elseif tt == self.LUA_TNIL then
-    else
-      assert(false)  -- cannot happen
-    end
-  end
+   local n = f.sizek
+   self:DumpInt(n, D)
+   for i = 0, n - 1 do
+      local o = f.k[i] -- TObject
+      local tt = self:ttype(o)
+      assert(tt >= 0)
+      self:DumpByte(tt, D)
+      if tt == self.LUA_TNUMBER then
+         self:DumpNumber(o.value, D)
+      elseif tt == self.LUA_TSTRING then
+         self:DumpString(o.value, D)
+      elseif tt == self.LUA_TBOOLEAN then
+         self:DumpByte(o.value and 1 or 0, D)
+      elseif tt == self.LUA_TNIL then
+      else
+         assert(false) -- cannot happen
+      end
+   end
 end
 
-
-function luaU:DumpProtos (f, D)
-  local n = f.sizep
-  assert (n)
-  self:DumpInt(n, D)
-  for i = 0, n - 1 do
-    self:DumpFunction(f.p[i], f.source, D)
-  end
+function luaU:DumpProtos(f, D)
+   local n = f.sizep
+   assert(n)
+   self:DumpInt(n, D)
+   for i = 0, n - 1 do
+      self:DumpFunction(f.p[i], f.source, D)
+   end
 end
 
 function luaU:DumpDebug(f, D)
-  self:DumpLines(f, D)
-  self:DumpLocals(f, D)
-  self:DumpUpvalues(f, D)
+   self:DumpLines(f, D)
+   self:DumpLocals(f, D)
+   self:DumpUpvalues(f, D)
 end
-
 
 ------------------------------------------------------------------------
 -- dump child function prototypes from function prototype
@@ -380,19 +405,21 @@ function luaU:DumpFunction(f, p, D)
    -- print "Dumping function:"
    -- table.print(f, 60)
 
-  local source = f.source
-  if source == p then source = nil end
-  self:DumpString(source, D)
-  self:DumpInt(f.lineDefined, D)
-  self:DumpInt(f.lastLineDefined or 42, D)
-  self:DumpByte(f.nups, D)
-  self:DumpByte(f.numparams, D)
-  self:DumpByte(f.is_vararg, D)
-  self:DumpByte(f.maxstacksize, D)
-  self:DumpCode(f, D)
-  self:DumpConstants(f, D)
-  self:DumpProtos( f, D)
-  self:DumpDebug(f, D)
+   local source = f.source
+   if source == p then
+      source = nil
+   end
+   self:DumpString(source, D)
+   self:DumpInt(f.lineDefined, D)
+   self:DumpInt(f.lastLineDefined or 0, D) -- HACK: change to 0 if nil to fit 5.1?
+   self:DumpByte(f.nups, D)
+   self:DumpByte(f.numparams, D)
+   self:DumpByte(f.is_vararg, D)
+   self:DumpByte(f.maxstacksize, D)
+   self:DumpCode(f, D)
+   self:DumpConstants(f, D)
+   self:DumpProtos(f, D)
+   self:DumpDebug(f, D)
 end
 
 ------------------------------------------------------------------------
@@ -400,7 +427,7 @@ end
 --FF: updated for version 5.1
 ------------------------------------------------------------------------
 function luaU:DumpHeader(D)
-  self:DumpLiteral(format.header, D)
+   self:DumpLiteral(format.header, D)
 end
 
 ------------------------------------------------------------------------
@@ -408,15 +435,15 @@ end
 -- * w, data are created from make_setS, make_setF
 --FF: suppressed extraneous [L] param
 ------------------------------------------------------------------------
-function luaU:dump (Main, w, data)
-  local D = {}  -- DumpState
-  D.write = w
-  D.data = data
-  self:DumpHeader(D)
-  self:DumpFunction(Main, nil, D)
-  -- added: for a chunk writer writing to a file, this final call with
-  -- nil data is to indicate to the writer to close the file
-  D.write(nil, D.data)
+function luaU:dump(Main, w, data)
+   local D = {} -- DumpState
+   D.write = w
+   D.data = data
+   self:DumpHeader(D)
+   self:DumpFunction(Main, nil, D)
+   -- added: for a chunk writer writing to a file, this final call with
+   -- nil data is to indicate to the writer to close the file
+   D.write(nil, D.data)
 end
 
 ------------------------------------------------------------------------
@@ -424,23 +451,23 @@ end
 -- * hard-coded to little-endian
 ------------------------------------------------------------------------
 function luaU:endianness()
-  return 1
+   return 1
 end
 
--- FIXME: ugly concat-base generation in [make_setS], bufferize properly! 
-function M.dump_string (proto)
+-- FIXME: ugly concat-base generation in [make_setS], bufferize properly!
+function M.dump_string(proto)
    local writer, buff = luaU:make_setS()
-   luaU:dump (proto, writer, buff)
+   luaU:dump(proto, writer, buff)
    return buff.data
 end
 
 -- FIXME: [make_setS] sucks, perform synchronous file writing
 -- Now unused
-function M.dump_file (proto, filename)
+function M.dump_file(proto, filename)
    local writer, buff = luaU:make_setS()
-   luaU:dump (proto, writer, buff)
-   local file = io.open (filename, "wb")
-   file:write (buff.data)
+   luaU:dump(proto, writer, buff)
+   local file = io.open(filename, "wb")
+   file:write(buff.data)
    io.close(file)
    --if UNIX_SHARPBANG then os.execute ("chmod a+x "..filename) end
 end

@@ -16,6 +16,7 @@
 --     Fabien Fleutot - API and implementation
 --
 -------------------------------------------------------------------------------
+
 local M = {}
 
 ---@class lexer
@@ -25,10 +26,10 @@ local M = {}
 ---@field posfact position_factory
 ---@field newstream fun(lx: lexer, src_or_stream: string | table, src_name: string): lexer?
 ---@field is_keyword fun(lx: lexer, tk: token, ...: string): string | false
----@field extract_short_comment fun(lx: lexer): string, number | nil
----@field extract_long_comment fun(lx: lexer): string, number | nil
+---@field extract_short_comment fun(lx: lexer): string?, string?, number?
+---@field extract_long_comment fun(lx: lexer): string?, string?, number?
 ---@field extract_short_string fun(lx: lexer): string?, string?
----@field extract_word fun(lx: lexer): string, number | nil
+---@field extract_word fun(lx: lexer): string?, number?
 ---@field extract_number fun(lx: lexer): string?, number?
 ---@field extract_long_string fun(lx: lexer): string?, string? | nil
 ---@field extract_symbol fun(lx: lexer): string, string | nil
@@ -43,15 +44,13 @@ local M = {}
 local lexer = { alpha = {}, sym = {} }
 lexer.__index = lexer
 lexer.__type = "lexer.stream"
-M.lexer = lexer
 
--- HACK: wtf is locale?
+M.lexer = lexer
 
 -- Some locale settings produce bad results, e.g. French locale
 -- expect float numbers to use commas instead of periods.
 -- TODO: change number parser into something loclae-independent,
 -- locales are nasty.
-----------------------------------------------------------------------
 os.setlocale("C")
 
 local MT = {}
@@ -66,10 +65,6 @@ local function new_metatable(name)
    MT[name] = mt
 end
 
-new_metatable("position")
-
-local position_idx = 1
-
 ---@class position : lexer
 ---represent a point in a source file.
 ---@field line number
@@ -78,6 +73,16 @@ local position_idx = 1
 ---@field source string
 ---@field comments comment
 ---@field facing position
+new_metatable("position")
+
+local position_idx = 1
+
+---Return a new_position
+---@param line number
+---@param column number
+---@param offset number
+---@param source string
+---@return position
 function M.new_position(line, column, offset, source)
    local id = position_idx
    position_idx = position_idx + 1
@@ -95,14 +100,15 @@ function MT.position:__tostring()
    )
 end
 
+---Position factory: convert offsets into line/column/offset positions.
 ---@class position_factory: lexer
 ---@field src_name string
 ---@field line2offset number[]
 ---@field max number
----@field get_position fun(self: position_factory, offset: number): position
+---@field get_position fun(posfact: position_factory, x: number): position
 new_metatable("position_factory")
 
----convert offsets into line/column/offset positions.
+---Return a new position_factory
 ---@param src string
 ---@param src_name string
 ---@return position_factory
@@ -116,7 +122,7 @@ function M.new_position_factory(src, src_name)
    return setmetatable({ src_name = src_name, line2offset = lines, max = max }, MT.position_factory)
 end
 
----get the position of a given offset.
+---Get the position of a given offset.
 ---@param offset number
 ---@return position
 function MT.position_factory:get_position(offset)
@@ -150,13 +156,14 @@ function MT.position_factory:get_position(offset)
    return M.new_position(line, column, offset, self.src_name)
 end
 
+---Lineinfo: represent a node's range in a source file;
 ---@class lineinfo
 ---@field first position
 ---@field last position
----Lineinfo: represent a node's range in a source file;
 ---embed information about prefix and suffix comments.
 new_metatable("lineinfo")
 
+---Return a new lineinfo
 ---@param first position
 ---@param last position
 ---@return lineinfo
@@ -189,32 +196,30 @@ function MT.lineinfo:__tostring()
    )
 end
 
----@class token
 ---Token: atomic Lua language element, with a tag, a content,
 ---and some lineinfo relating it to its original source.
+---@class token
 ---@field tag string
 ---@field content string
 ---@field lineinfo lineinfo
 new_metatable("token")
 
+---Return a new token
 ---@param tag string
 ---@param content string
 ---@param lineinfo lineinfo
 ---@return token
 function M.new_token(tag, content, lineinfo)
-   --printf("TOKEN `%s{ %q, lineinfo = %s} boundaries %d, %d",
-   --       tag, content, tostring(lineinfo), lineinfo.first.id, lineinfo.last.id)
    return setmetatable({ tag = tag, lineinfo = lineinfo, content }, MT.token)
 end
 
 function MT.token:__tostring()
-   --return string.format("`%s{ %q, %s }", self.tag, self[1], tostring(self.lineinfo))
    return string.format("`%s %q", self.tag, self[1])
 end
 
----@class comment
 ---Comment: series of comment blocks with associated lineinfo.
 ---To be attached to the tokens just before and just after them.
+---@class comment
 ---@field lineinfo lineinfo
 ---@field text fun(): string
 new_metatable("comment")
@@ -241,7 +246,7 @@ function MT.comment:text()
    return table.concat(acc)
 end
 
----returns new_comment_line
+---Return new_comment_line
 ---@param text string
 ---@param lineinfo lineinfo
 ---@param nequals? number
@@ -265,8 +270,10 @@ lexer.patterns = {
    word = "^([%a_][%w_]*)()",
 }
 
+----------------------------------------------------------------------
 -- unescape a whole string, applying [unesc_digits] and
 -- [unesc_letter] as many times as required.
+----------------------------------------------------------------------
 local function unescape_string(s)
    -- Turn the digits of an escape sequence into the corresponding
    -- character, e.g. [unesc_digits("123") == string.char(123)].
@@ -352,10 +359,12 @@ lexer.extractors = {
    "extract_symbol",
 }
 
----Really extract next token from the raw string (and update the index).
----loc: offset of the position just after spaces and comments
----previous_i: offset in src before extraction began
----@return token
+----------------------------------------------------------------------
+-- Really extract next token from the raw string
+-- (and update the index).
+-- loc: offset of the position just after spaces and comments
+-- previous_i: offset in src before extraction began
+----------------------------------------------------------------------
 function lexer:extract()
    local attached_comments = {}
    local function gen_token(...)
@@ -416,7 +425,9 @@ function lexer:extract()
    end -- while token is a comment
 end -- :extract()
 
+----------------------------------------------------------------------
 -- Extract a short comment.
+----------------------------------------------------------------------
 function lexer:extract_short_comment()
    -- TODO: handle final_short_comment
    local content, j = self.src:match(self.patterns.short_comment, self.i)
@@ -426,7 +437,9 @@ function lexer:extract_short_comment()
    end
 end
 
+----------------------------------------------------------------------
 -- Extract a long comment.
+----------------------------------------------------------------------
 function lexer:extract_long_comment()
    local equals, content, j = self.src:match(self.patterns.long_comment, self.i)
    if j then
@@ -435,7 +448,9 @@ function lexer:extract_long_comment()
    end
 end
 
+----------------------------------------------------------------------
 -- Extract a '...' or "..." short string.
+----------------------------------------------------------------------
 function lexer:extract_short_string()
    local k = self.src:sub(self.i, self.i) -- first char
    if k ~= [[']] and k ~= [["]] then
@@ -464,7 +479,8 @@ function lexer:extract_short_string()
    return "String", unescape_string(self.src:sub(i, j - 2))
 end
 
--- Extract Id or Keyword.
+---Extract Id or Keyword.
+---@return string?, string?
 function lexer:extract_word()
    local word, j = self.src:match(self.patterns.word, self.i)
    if word then
@@ -534,7 +550,7 @@ function lexer:extract_symbol()
 end
 
 ---Add a keyword to the list of keywords recognized by the lexer.
----@param w string | string[]
+---@param w string | string[] ,
 function lexer:add(w)
    if type(w) == "table" then
       for _, x in ipairs(w) do
@@ -576,10 +592,10 @@ function lexer:peek(n)
    return self.peeked[n]
 end
 
----Return the [n]th next token, removing it as well as the 0..n-1
----previous tokens. [n] defaults to 1. If it goes pass the end of the
----stream, an EOF token is returned.
----@param n number?
+---Return the [n]th next token, without consuming it.
+---[n] defaults to 1. If it goes pass the end of the stream,
+---an EOF token is returned.
+---@param n? number
 ---@return token
 function lexer:next(n)
    n = n or 1
@@ -587,8 +603,6 @@ function lexer:next(n)
    local a
    for _ = 1, n do
       a = table.remove(self.peeked, 1)
-      -- TODO: is this used anywhere? I think not.  a.lineinfo.last may be nil.
-      --self.lastline = a.lineinfo.last.line
    end
    self.lineinfo_last_consumed = a.lineinfo.last
    return a
@@ -639,7 +653,6 @@ function lexer:takeover(old)
    return self
 end
 
-----------------------------------------------------------------------
 -- Return the current position in the sources. This position is between
 -- two tokens, and can be within a space / comment area, and therefore
 -- have a non-null width. :lineinfo_left() returns the beginning of the
@@ -650,13 +663,22 @@ end
 -- XXXXX  <spaces and comments> YYYYY
 --      \____                    \____
 --           :lineinfo_left()         :lineinfo_right()
-----------------------------------------------------------------------
 ---return the position of the right boundary of the current gap
 ---@return position
 function lexer:lineinfo_right()
    return self:peek(1).lineinfo.first
 end
 
+-- Return the current position in the sources. This position is between
+-- two tokens, and can be within a space / comment area, and therefore
+-- have a non-null width. :lineinfo_left() returns the beginning of the
+-- separation area, :lineinfo_right() returns the end of that area.
+--
+--    ____ last consummed token    ____ first unconsummed token
+--   /                            /
+-- XXXXX  <spaces and comments> YYYYY
+--      \____                    \____
+--           :lineinfo_left()         :lineinfo_right()
 ---return the position of the left boundary of the current gap
 ---@return position
 function lexer:lineinfo_left()
@@ -665,7 +687,7 @@ end
 
 ---Create a new lexstream.
 ---@param src_or_stream string | table
----@param name? string
+---@param name string?
 ---@return lexer?
 function lexer:newstream(src_or_stream, name)
    name = name or "?"
@@ -686,12 +708,6 @@ function lexer:newstream(src_or_stream, name)
       }
       setmetatable(stream, self)
 
-      -- Skip initial sharp-bang for Unix scripts
-      -- FIXME: redundant with mlp.chunk()
-      if src and src:match("^#!") then
-         local endofline = src:find("\n")
-         stream.i = endofline and (endofline + 1) or #src
-      end
       return stream
    else
       assert(false, ":newstream() takes a source string or a stream, not a " .. type(src_or_stream))
@@ -724,7 +740,7 @@ end
 
 ---Cause an error if the next token isn't a keyword whose content is listed among ... args (which have to be strings).
 ---@param ... string[]
----@return string[]?
+---@return string[]? #?
 function lexer:check(...)
    local words = { ... }
    local a = self:next()
@@ -745,7 +761,7 @@ function lexer:check(...)
    err()
 end
 
----clone a lexer
+---clone the current lexer, return the new instance
 ---@return lexer
 function lexer:clone()
    local alpha_clone, sym_clone = {}, {}

@@ -80,9 +80,13 @@
 --       the corresponding locals are declared.
 
 -- TODO: fix the extra label from each case
+-- TODO: better label names
+-- TODO: better error messages
+-- TODO: use walk to replace_dots
 local gg  = require 'metalua.grammar.generator'
 local pp  = require 'metalua.pprint'
 
+local checks = require("checks")
 ----------------------------------------------------------------------
 -- This would have been best done through library 'metalua.walk',
 -- but walk depends on match, so we have to break the dependency.
@@ -366,15 +370,19 @@ local function match_builder (term_seq, cases)
   return cfg.code
 end
 
-
--- TODO: clean
--- TODO: multiple args?
-local function xmatch_builder (term_seq, id, cases)
+local function fmatch_builder (term_seq, cases, id)
    local ast = match_builder(term_seq, cases)
    return `Set{ `Id{id}, { `Function{ term_seq, { ast } } } }
 end
 
+local function local_fmatch_builder (term_seq, cases, id)
+   local ast = match_builder(term_seq, cases)
+   return { `Local{ { `Id{id} }, { } }, `Set{ `Id{id}, { `Function{ term_seq, { ast } } } } }
+end
+
 -- Syntactical front-end
+
+
 
 local function extend(M)
 
@@ -382,36 +390,67 @@ local function extend(M)
 
     checks('metalua.compiler.parser')
     M.lexer:add{ "match", "with", "->" }
+
     M.block.terminators:add "|"
 
-    local match_cases_list_parser = gg.list{ name = "match cases list",
-        gg.sequence{ name = "match case",
+   local function match_header(lx)
+      if lx:is_keyword(lx:peek(2), ",") or lx:is_keyword(lx:peek(2), "with") then
+         terms = _M.expr_list(lx)
+         return {kind = "match", terms = terms}
+      else
+         local id = _M.id(lx)
+         lx:next()
+         local terms = _M.expr_list(lx) --?expr_list
+         lx:next()
+         return {kind = "fmatch", id = id, terms = terms}
+      end
+   end
+
+   -- local block_or_expr = gg.multisequence({ _M.block, _M.expr })
+   -- local block_or_expr = function(lx)
+   --    local state = lx:save()
+   --    local expr = pcall(_M.expr, lx)
+   --    pp.print(expr)
+   --    if expr then
+   --       return `Return{expr}
+   --    else
+   --       lx:restore(state)
+   --       return _M.block(lx)
+   --    end
+   --    -- _M.block(lx)
+   -- end
+   local match_case = gg.sequence{ name = "match case",
                      gg.list{ name  = "match case patterns list",
                               primary     = _M.expr_list,
-                              separators  = "|",
+                              separators  = ";",
                               terminators = { "->", "if" } },
                      gg.onkeyword{ "if", _M.expr, consume = true },
                      "->",
-                     _M.block },
-        separators  = "|",
-        terminators = "end" }
+                     _M.block }
 
-    M.stat:add{ name = "match statement",
-                  "match",
-                  _M.expr_list,
-                  "with", gg.optkeyword "|",
-                  match_cases_list_parser,
-                  "end",
-                  builder = |x| match_builder( x[1], x[3] ) }
-    M.stat:add{ name = "xmatch statement",
-                  "match",
-                  _M.expr_list,
-                  "with",
-                  _M.id,
-                   gg.optkeyword "|",
-                  match_cases_list_parser,
-                  "end",
-                  builder = |x| xmatch_builder( x[1],x[2], x[4] ) }
+   local match_cases_list_parser = gg.list{ name = "match cases list",
+      match_case,
+      separators  = "|",
+      terminators = "end" }
+
+   M.stat:add{ name = "fmatch statement",
+               "match",
+               match_header,
+               gg.optkeyword "with",
+               gg.optkeyword "|",
+               match_cases_list_parser,
+               "end",
+               builder = function(x)
+                  if x[1].kind == "fmatch" then
+                     return fmatch_builder(x[1].terms, x[4], x[1].id)
+                  else
+                     return match_builder(x[1].terms, x[4])
+                  end
+               end
+   }
+
 end
+
+--TODO: as expression
 
 return extend

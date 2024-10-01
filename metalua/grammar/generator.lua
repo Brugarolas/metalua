@@ -46,7 +46,10 @@
 
 local M = {}
 
+local checks = require("checks")
 local lexer = require("metalua.grammar.lexer")
+local pp = require("metalua.pprint")
+local log = require("metalua.log")
 
 --------------------------------------------------------------------------------
 -- Symbol generator: [gensym()] returns a guaranteed-to-be-unique identifier.
@@ -59,7 +62,7 @@ local gensymidx = 0
 
 function M.gensym(arg)
    gensymidx = gensymidx + 1
-   return { tag = "Id", string.format(".%i.%s", gensymidx, arg or "") }
+   return { tag = "Id", string.format("_%i_%s", gensymidx, arg or "") }
 end
 
 -------------------------------------------------------------------------------
@@ -111,12 +114,7 @@ local function raw_parse_sequence(lx, p)
          table.insert(r, e(lx))
       else -- Invalid parser definition, this is *not* a parsing error
          error(
-            string.format(
-               "Sequence `%s': element #%i is neither a string nor a parser: %s",
-               p.name,
-               i,
-               table.tostring(e)
-            )
+            string.format("Sequence `%s': element #%i is neither a string nor a parser: %s", p.name, i, pp.tostring(e))
          )
       end
    end
@@ -324,7 +322,7 @@ function M.multisequence(p)
          end -- first default
       else
          if self.sequences[keyword] then -- duplicate keyword
-            -- TODO: warn that initial keyword `keyword` is overloaded in multiseq
+            log.warn("Keyword [" .. keyword .. "] is overloaded in multisequence")
          end
          self.sequences[keyword] = s
       end
@@ -342,7 +340,7 @@ function M.multisequence(p)
    -------------------------------------------------------------------
    function p:del(kw)
       if not self.sequences[kw] then
-         -- TODO: warn that we try to delete a non-existent entry
+         log.warn("Trying to delete a non-existent entry [" .. kw .. "] in multisequence")
       end
       local removed = self.sequences[kw]
       self.sequences[kw] = nil
@@ -371,8 +369,6 @@ function M.multisequence(p)
       p[i] = nil
    end
 
-   -- FIXME: why is this commented out?
-   --if p.default and not is_parser(p.default) then sequence(p.default) end
    return p
 end --</multisequence>
 
@@ -484,7 +480,7 @@ function M.expr(p)
       ------------------------------------------------------
       local function handle_infix(e)
          local p2_func, p2 = get_parser_info(self.infix)
-         if not p2 then
+         if not p2 or not p2_func then
             return false
          end
 
@@ -546,9 +542,9 @@ function M.expr(p)
       -- or false if no operator was found.
       ------------------------------------------------------
       local function handle_suffix(e)
-         -- FIXME bad fli, must take e.lineinfo.first
+         -- FIXME: bad fli, must take e.lineinfo.first
          local p2_func, p2 = get_parser_info(self.suffix)
-         if not p2 then
+         if not p2 or not p2_func then
             return false
          end
          if not p2.prec or p2.prec >= prec then
@@ -658,7 +654,9 @@ function M.list(p)
          repeat
             local item = self.primary(lx)
             table.insert(x, item) -- read one element
-         until  -- There's a separator list specified, and next token isn't in it.            -- Otherwise, consume it with [lx:next()]self.separators and not (peek_is_in(self.separators) and lx:next())
+         -- There's a separator list specified, and next token isn't in it.            -- Otherwise, consume it with [lx:next()]
+
+         until self.separators and not (peek_is_in(self.separators) and lx:next())
             -- Terminator token ahead
             or peek_is_in(self.terminators)
             -- Last reason: end of file reached
@@ -886,7 +884,7 @@ local FUTURE_MT = {}
 function FUTURE_MT:__tostring()
    return "<Proxy parser module>"
 end
-function FUTURE_MT:__newindex(key, value)
+function FUTURE_MT:__newindex(_, _)
    error("don't write in futures")
 end
 function FUTURE_MT:__index(parser_name)

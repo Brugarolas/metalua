@@ -51,7 +51,7 @@
 
 local function debugf() end
 
-local luaP = { }
+local luaP = {}
 
 --[[
 ===========================================================================
@@ -72,33 +72,37 @@ local luaP = { }
 ===========================================================================
 --]]
 
-luaP.OpMode = {"iABC", "iABx", "iAsBx"}  -- basic instruction format
+luaP.OpMode = { "iABC", "iABx", "iAsBx" } -- basic instruction format
 
 ------------------------------------------------------------------------
 -- size and position of opcode arguments.
 -- * WARNING size and position is hard-coded elsewhere in this script
 ------------------------------------------------------------------------
-luaP.SIZE_C  = 9
-luaP.SIZE_B  = 9
-luaP.SIZE_Bx = luaP.SIZE_C + luaP.SIZE_B
-luaP.SIZE_A  = 8
+luaP.SIZE_C = 9
+luaP.SIZE_B = 9
+luaP.SIZE_Bx = luaP.SIZE_C + luaP.SIZE_B -- 18
+luaP.SIZE_A = 8
 
-luaP.SIZE_OP = 6
+luaP.SIZE_OP = 6 -- 7 in lua 5.4?!?!
 
-luaP.POS_C  = luaP.SIZE_OP
-luaP.POS_B  = luaP.POS_C + luaP.SIZE_C
+luaP.POS_C = luaP.SIZE_OP
+luaP.POS_B = luaP.POS_C + luaP.SIZE_C
 luaP.POS_Bx = luaP.POS_C
-luaP.POS_A  = luaP.POS_B + luaP.SIZE_B
+luaP.POS_A = luaP.POS_B + luaP.SIZE_B
 
 --FF from 5.1
-luaP.BITRK = 2^(luaP.SIZE_B - 1)
-function luaP:ISK(x) return x >= self.BITRK end
-luaP.MAXINDEXRK = luaP.BITRK - 1
-function luaP:RKASK(x)
-   if x < self.BITRK then return x+self.BITRK else return x end
+luaP.BITRK = 2 ^ (luaP.SIZE_B - 1) -- 128
+function luaP:ISK(x)
+   return x >= self.BITRK
 end
-
-
+luaP.MAXINDEXRK = luaP.BITRK - 1 -- 127
+function luaP:RKASK(x)
+   if x < self.BITRK then
+      return x + self.BITRK
+   else
+      return x
+   end
+end
 
 ------------------------------------------------------------------------
 -- limits for opcode arguments.
@@ -108,8 +112,8 @@ end
 -- removed "#if SIZE_Bx < BITS_INT-1" test, assume this script is
 -- running on a Lua VM with double or int as LUA_NUMBER
 
-luaP.MAXARG_Bx  = math.ldexp(1, luaP.SIZE_Bx) - 1
-luaP.MAXARG_sBx = math.floor(luaP.MAXARG_Bx / 2)  -- 'sBx' is signed
+luaP.MAXARG_Bx = math.ldexp(1, luaP.SIZE_Bx) - 1
+luaP.MAXARG_sBx = math.floor(luaP.MAXARG_Bx / 2) -- 'sBx' is signed
 
 luaP.MAXARG_A = math.ldexp(1, luaP.SIZE_A) - 1
 luaP.MAXARG_B = math.ldexp(1, luaP.SIZE_B) - 1
@@ -140,37 +144,80 @@ luaP.MAXARG_C = math.ldexp(1, luaP.SIZE_C) - 1
 ------------------------------------------------------------------------
 
 -- these accept or return opcodes in the form of string names
-function luaP:GET_OPCODE(i) return self.ROpCode[i.OP] end
-function luaP:SET_OPCODE(i, o) i.OP = self.OpCode[o] end
-
-function luaP:GETARG_A(i) return i.A end
-function luaP:SETARG_A(i, u) i.A = u end
-
-function luaP:GETARG_B(i) return i.B end
-function luaP:SETARG_B(i, b) i.B = b end
-
-function luaP:GETARG_C(i) return i.C end
-function luaP:SETARG_C(i, b) i.C = b end
-
-function luaP:GETARG_Bx(i) return i.Bx end
-function luaP:SETARG_Bx(i, b) i.Bx = b end
-
-function luaP:GETARG_sBx(i) return i.Bx - self.MAXARG_sBx end
-function luaP:SETARG_sBx(i, b) i.Bx = b + self.MAXARG_sBx end
-
-function luaP:CREATE_ABC(o,a,b,c)
-  return {OP = self.OpCode[o], A = a, B = b, C = c}
+function luaP:GET_OPCODE(i)
+   return self.ROpCode[i.OP]
+end
+function luaP:SET_OPCODE(i, o)
+   i.OP = self.OpCode[o]
 end
 
-function luaP:CREATE_ABx(o,a,bc)
-  return {OP = self.OpCode[o], A = a, Bx = bc}
+function luaP:GETARG_A(i)
+   return i.A
+end
+function luaP:SETARG_A(i, u)
+   i.A = u
+end
+
+function luaP:GETARG_B(i)
+   return i.B
+end
+function luaP:SETARG_B(i, b)
+   i.B = b
+end
+
+function luaP:GETARG_C(i)
+   return i.C
+end
+function luaP:SETARG_C(i, b)
+   i.C = b
+end
+
+function luaP:GETARG_Bx(i)
+   return i.Bx
+end
+function luaP:SETARG_Bx(i, b)
+   i.Bx = b
+end
+
+function luaP:GETARG_sBx(i)
+   return i.Bx - self.MAXARG_sBx
+end
+function luaP:SETARG_sBx(i, b)
+   i.Bx = b + self.MAXARG_sBx
+end
+
+local abc_mt = {}
+abc_mt.__tostring = function(self)
+   return string.format("<%s: A=%d, B=%d, C=%d>", luaP.ROpCode[self.OP], self.A, self.B, self.C)
+end
+
+local abx_mt = {}
+abx_mt.__tostring = function(self)
+   return string.format("<%s: A=%d, Bx=%d>", luaP.ROpCode[self.OP], self.A, self.Bx)
+end
+---create an instruction table for iABC
+---@param o string
+---@param a number
+---@param b number
+---@param c number
+---@return instruction
+function luaP:CREATE_ABC(o, a, b, c)
+   return setmetatable({ OP = self.OpCode[o], A = a, B = b, C = c }, abc_mt)
+end
+---create an instruction table for iABx
+---@param o string
+---@param a number
+---@param bc number
+---@return instruction
+function luaP:CREATE_ABx(o, a, bc)
+   return setmetatable({ OP = self.OpCode[o], A = a, Bx = bc }, abx_mt)
 end
 
 ------------------------------------------------------------------------
 -- Bit shuffling stuffs
 ------------------------------------------------------------------------
 
-if false and pcall (require, 'bit') then
+if false and pcall(require, "bit") then
    ------------------------------------------------------------------------
    -- Return a 4-char string little-endian encoded form of an instruction
    ------------------------------------------------------------------------
@@ -178,35 +225,44 @@ if false and pcall (require, 'bit') then
       --FIXME
    end
 else
-   ------------------------------------------------------------------------   
+   ------------------------------------------------------------------------
    -- Version without bit manipulation library.
    ------------------------------------------------------------------------
-   local p2 = {1,2,4,8,16,32,64,128,256, 512, 1024, 2048, 4096}
+   local p2 = { 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096 }
    -- keeps [n] bits from [x]
-   local function keep (x, n) return x % p2[n+1] end
+   local function keep(x, n)
+      return x % p2[n + 1]
+   end
    -- shifts bits of [x] [n] places to the right
-   local function srb (x,n) return math.floor (x / p2[n+1]) end
+   local function srb(x, n)
+      return math.floor(x / p2[n + 1])
+   end
    -- shifts bits of [x] [n] places to the left
-   local function slb (x,n) return x * p2[n+1] end
+   local function slb(x, n)
+      return x * p2[n + 1]
+   end
 
-   ------------------------------------------------------------------------
-   -- Return a 4-char string little-endian encoded form of an instruction
-   ------------------------------------------------------------------------
+   ---Return a 4-char string little-endian encoded form of an instruction
+   ---@param i any
+   ---@return string
    function luaP:Instruction(i)
       -- printf("Instr->string: %s %s", self.opnames[i.OP], table.tostring(i))
       local c0, c1, c2, c3
       -- change to OP/A/B/C format if needed
-      if i.Bx then i.C = keep (i.Bx, 9); i.B = srb (i.Bx, 9) end
+      if i.Bx then
+         i.C = keep(i.Bx, 9)
+         i.B = srb(i.Bx, 9)
+      end
       -- c0 = 6B from opcode + 2LSB from A (flushed to MSB)
-      c0 = i.OP + slb (keep (i.A, 2), 6) 
+      c0 = i.OP + slb(keep(i.A, 2), 6)
       -- c1 = 6MSB from A + 2LSB from C (flushed to MSB)
-      c1 = srb (i.A, 2) + slb (keep (i.C, 2), 6)
+      c1 = srb(i.A, 2) + slb(keep(i.C, 2), 6)
       -- c2 = 7MSB from C + 1LSB from B (flushed to MSB)
-      c2 = srb (i.C, 2) + slb (keep (i.B, 1), 7)
+      c2 = srb(i.C, 2) + slb(keep(i.B, 1), 7)
       -- c3 = 8MSB from B
-      c3 = srb (i.B, 1)
+      c3 = srb(i.B, 1)
       --printf ("Instruction:   %s %s", self.opnames[i.OP], tostringv (i))
-      --printf ("Bin encoding:  %x %x %x %x", c0, c1, c2, c3)  
+      --printf ("Bin encoding:  %x %x %x %x", c0, c1, c2, c3)
       return string.char(c0, c1, c2, c3)
    end
 end
@@ -214,7 +270,7 @@ end
 -- decodes a 4-char little-endian string into an instruction struct
 ------------------------------------------------------------------------
 function luaP:DecodeInst(x)
-  error "Not implemented"
+   error("Not implemented")
 end
 
 ------------------------------------------------------------------------
@@ -276,59 +332,61 @@ OP_CLOSE      A       close all variables in the stack up to (>=) R(A)
 OP_CLOSURE    A Bx    R(A) := closure(KPROTO[Bx], R(A), ... ,R(A+n))
 ----------------------------------------------------------------------]]
 
-luaP.opnames = {}  -- opcode names
-luaP.OpCode = {}   -- lookup name -> number
-luaP.ROpCode = {}  -- lookup number -> name
+luaP.opnames = {} -- opcode names
+luaP.OpCode = {} -- lookup name -> number
+luaP.ROpCode = {} -- lookup number -> name
 
-local i = 0
-for v in string.gfind([[
-MOVE -- 0
-LOADK
-LOADBOOL
-LOADNIL
-GETUPVAL
-GETGLOBAL -- 5
-GETTABLE
-SETGLOBAL
-SETUPVAL
-SETTABLE
-NEWTABLE -- 10
-SELF
-ADD
-SUB
-MUL
-DIV -- 15
-MOD
-POW
-UNM
-NOT
-LEN -- 20
-CONCAT
-JMP
-EQ
-LT
-LE -- 25
-TEST
-TESTSET
-CALL
-TAILCALL
-RETURN -- 30
-FORLOOP
-FORPREP
-TFORLOOP
-SETLIST
-CLOSE -- 35
-CLOSURE
-VARARG
-]], "[%a]+") do
-  local n = "OP_"..v
-  luaP.opnames[i] = v
-  luaP.OpCode[n] = i
-  luaP.ROpCode[i] = n
-  i = i + 1
+-- local i = 0
+luaP.opnames = {
+   "MOVE",
+   "LOADK",
+   "LOADBOOL",
+   "LOADNIL",
+   "GETUPVAL",
+   "GETGLOBAL",
+   "GETTABLE",
+   "SETGLOBAL",
+   "SETUPVAL",
+   "SETTABLE",
+   "NEWTABLE",
+   "SELF",
+   "ADD",
+   "SUB",
+   "MUL",
+   "DIV",
+   "MOD",
+   "POW",
+   "UNM",
+   "NOT",
+   "LEN",
+   "CONCAT",
+   "JMP",
+   "EQ",
+   "LT",
+   "LE",
+   "TEST",
+   "TESTSET",
+   "CALL",
+   "TAILCALL",
+   "RETURN",
+   "FORLOOP",
+   "FORPREP",
+   "TFORLOOP",
+   "SETLIST",
+   "CLOSE",
+   "CLOSURE",
+   "VARARG",
+}
+
+for i, v in ipairs(luaP.opnames) do
+   local n = "OP_" .. v
+   -- luaP.opnames[i] = v
+   luaP.OpCode[n] = i - 1
+   luaP.ROpCode[i - 1] = n
 end
-luaP.NUM_OPCODES = i
 
+luaP.NUM_OPCODES = #luaP.opnames
+-- print(vim.inspect(luaP.OpCode))
 --[[
 ===========================================================================
   Notes:
@@ -351,29 +409,27 @@ luaP.NUM_OPCODES = i
 -- masks for instruction properties
 ------------------------------------------------------------------------
 -- was enum OpModeMask:
-luaP.OpModeBreg = 2  -- B is a register
-luaP.OpModeBrk  = 3  -- B is a register/constant
-luaP.OpModeCrk  = 4  -- C is a register/constant
-luaP.OpModesetA = 5  -- instruction set register A
-luaP.OpModeK    = 6  -- Bx is a constant
-luaP.OpModeT    = 1  -- operator is a test
+luaP.OpModeBreg = 2 -- B is a register
+luaP.OpModeBrk = 3 -- B is a register/constant
+luaP.OpModeCrk = 4 -- C is a register/constant
+luaP.OpModesetA = 5 -- instruction set register A
+luaP.OpModeK = 6 -- Bx is a constant
+luaP.OpModeT = 1 -- operator is a test
 
-------------------------------------------------------------------------
--- get opcode mode, e.g. "iABC"
-------------------------------------------------------------------------
+---get opcode mode, e.g. "iABC"
+---@param m string
+---@return "iABC" | "iABx" | "iAsBx"
 function luaP:getOpMode(m)
-   --printv(m)
-   --printv(self.OpCode[m])
-   --printv(self.opmodes [self.OpCode[m]+1])
    return self.OpMode[tonumber(string.sub(self.opmodes[self.OpCode[m] + 1], 7, 7))]
 end
 
-------------------------------------------------------------------------
--- test an instruction property flag
--- * b is a string, e.g. "OpModeBreg"
-------------------------------------------------------------------------
+---test an instruction property flag
+---* b is a string, e.g. "OpModeBreg"
+---@param m string
+---@param b "OpModeBreg"|"OpModeBrk"|"OpModeCrk"|"OpModesetA"|"OpModeK"|"OpModeT"
+---@return boolean
 function luaP:testOpMode(m, b)
-  return (string.sub(self.opmodes[self.OpCode[m] + 1], self[b], self[b]) == "1")
+   return (string.sub(self.opmodes[self.OpCode[m] + 1], self[b], self[b]) == "1")
 end
 
 -- number of list items to accumulate before a SETLIST instruction
@@ -398,45 +454,49 @@ luaP.LFIELDS_PER_FLUSH = 50 --FF updated to match 5.1
 ----------------------------------------------------------------------]]
 
 luaP.opmodes = {
--- TBbCAKm      opcode
-  "0100101", -- OP_MOVE      0
-  "0000112", -- OP_LOADK
-  "0000101", -- OP_LOADBOOL
-  "0100101", -- OP_LOADNIL
-  "0000101", -- OP_GETUPVAL
-  "0000112", -- OP_GETGLOBAL 5
-  "0101101", -- OP_GETTABLE
-  "0000012", -- OP_SETGLOBAL
-  "0000001", -- OP_SETUPVAL
-  "0011001", -- OP_SETTABLE
-  "0000101", -- OP_NEWTABLE 10
-  "0101101", -- OP_SELF
-  "0011101", -- OP_ADD
-  "0011101", -- OP_SUB
-  "0011101", -- OP_MUL
-  "0011101", -- OP_DIV      15
-  "0011101", -- OP_MOD
-  "0011101", -- OP_POW
-  "0100101", -- OP_UNM
-  "0100101", -- OP_NOT
-  "0100101", -- OP_LEN      20
-  "0101101", -- OP_CONCAT
-  "0000003", -- OP_JMP
-  "1011001", -- OP_EQ
-  "1011001", -- OP_LT
-  "1011001", -- OP_LE       25
-  "1000101", -- OP_TEST
-  "1100101", -- OP_TESTSET
-  "0000001", -- OP_CALL
-  "0000001", -- OP_TAILCALL
-  "0000001", -- OP_RETURN   30
-  "0000003", -- OP_FORLOOP
-  "0000103", -- OP_FORPREP
-  "1000101", -- OP_TFORLOOP
-  "0000001", -- OP_SETLIST
-  "0000001", -- OP_CLOSE    35
-  "0000102", -- OP_CLOSURE
-  "0000101"  -- OP_VARARG
+   -- TBbCAKm      opcode
+   "0100101", -- OP_MOVE      0
+   "0000112", -- OP_LOADK
+   "0000101", -- OP_LOADBOOL
+   "0100101", -- OP_LOADNIL
+   "0000101", -- OP_GETUPVAL
+   "0000112", -- OP_GETGLOBAL 5
+   "0101101", -- OP_GETTABLE
+   "0000012", -- OP_SETGLOBAL
+   "0000001", -- OP_SETUPVAL
+   "0011001", -- OP_SETTABLE
+   "0000101", -- OP_NEWTABLE 10
+   "0101101", -- OP_SELF
+   "0011101", -- OP_ADD
+   "0011101", -- OP_SUB
+   "0011101", -- OP_MUL
+   "0011101", -- OP_DIV      15
+   "0011101", -- OP_MOD
+   "0011101", -- OP_POW
+   "0100101", -- OP_UNM
+   "0100101", -- OP_NOT
+   "0100101", -- OP_LEN      20
+   "0101101", -- OP_CONCAT
+   "0000003", -- OP_JMP
+   "1011001", -- OP_EQ
+   "1011001", -- OP_LT
+   "1011001", -- OP_LE       25
+   "1000101", -- OP_TEST
+   "1100101", -- OP_TESTSET
+   "0000001", -- OP_CALL
+   "0000001", -- OP_TAILCALL
+   "0000001", -- OP_RETURN   30
+   "0000003", -- OP_FORLOOP
+   "0000103", -- OP_FORPREP
+   "1000101", -- OP_TFORLOOP
+   "0000001", -- OP_SETLIST
+   "0000001", -- OP_CLOSE    35
+   "0000102", -- OP_CLOSURE
+   "0000101", -- OP_VARARG
 }
-
+-- pp = require("metalua.pprint").print
+-- -- print(luaP:Instruction({ OP = 0, A = 1, B = 1, C = 1 }))
+-- -- pp.print(luaP:CREATE_ABC("OP_MOVE", 1, 1, 1))
+-- print(luaP:CREATE_ABC("OP_MOVE", 1, 1, 1))
+-- print(luaP:CREATE_ABx("OP_TEST", 1, 1))
 return luaP

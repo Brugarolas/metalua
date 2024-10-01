@@ -22,44 +22,58 @@
 -- rather than only plain Lua
 --------------------------------------------------------------------------------
 
-local mlc = require 'metalua.compiler'
+local mlc = require("metalua.compiler")
 
-local M = { }
+local M = {}
 
 -- Original versions
 local original_lua_versions = {
-    load       = load,
-    loadfile   = loadfile,
-    loadstring = loadstring,
-    dofile     = dofile }
+   load = load,
+   loadfile = loadfile,
+   loadstring = loadstring,
+   dofile = dofile,
+}
 
 local lua_loadstring = loadstring
 local lua_loadfile = loadfile
 
 function M.loadstring(str, name)
-   if type(str) ~= 'string' then error 'string expected' end
-   if str:match '^\027LuaQ' then return lua_loadstring(str) end
-   local n = str:match '^#![^\n]*\n()'
-   if n then str=str:sub(n, -1) end
+   if type(str) ~= "string" then
+      error("string expected")
+   end
+   if str:match("^\027LuaQ") then
+      return lua_loadstring(str)
+   end
+   local n = str:match("^#![^\n]*\n()")
+   if n then
+      str = str:sub(n, -1)
+   end
    -- FIXME: handle erroneous returns (return nil + error msg)
    return mlc.new():src_to_function(str, name)
 end
 
 function M.loadfile(filename)
-   local f, err_msg = io.open(filename, 'rb')
-   if not f then return nil, err_msg end
-   local success, src = pcall( f.read, f, '*a')
+   local f, err_msg = io.open(filename, "rb")
+   if not f then
+      return nil, err_msg
+   end
+   local success, src = pcall(f.read, f, "*a")
    pcall(f.close, f)
-   if success then return M.loadstring (src, '@'..filename)
-   else return nil, src end
+   if success then
+      return M.loadstring(src, "@" .. filename)
+   else
+      return nil, src
+   end
 end
 
 function M.load(f, name)
-   local acc = { }
+   local acc = {}
    while true do
       local x = f()
-      if not x then break end
-      assert(type(x)=='string', "function passed to load() must return strings")
+      if not x then
+         break
+      end
+      assert(type(x) == "string", "function passed to load() must return strings")
       table.insert(acc, x)
    end
    return M.loadstring(table.concat(acc))
@@ -67,18 +81,24 @@ end
 
 function M.dostring(src)
    local f, msg = M.loadstring(src)
-   if not f then error(msg) end
+   if not f then
+      error(msg)
+   end
    return f()
 end
 
 function M.dofile(name)
    local f, msg = M.loadfile(name)
-   if not f then error(msg) end
+   if not f then
+      error(msg)
+   end
    return f()
 end
 
 -- Export replacement functions as globals
-for name, f in pairs(M) do _G[name] = f end
+for name, f in pairs(M) do
+   _G[name] = f
+end
 
 -- To be done *after* exportation
 M.lua = original_lua_versions

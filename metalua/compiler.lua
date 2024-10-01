@@ -38,10 +38,10 @@
 --
 --------------------------------------------------------------------------------
 
-require 'checks'
+local checks = require("checks")
 
-local M  = { }
-
+local M = {}
+local pp = require("metalua.pprint")
 --------------------------------------------------------------------------------
 -- Order of the transformations. if 'a' is on the left of 'b', then a 'a' can
 -- be transformed into a 'b' (but not the other way around).
@@ -49,133 +49,166 @@ local M  = { }
 -- names to numbers.
 --------------------------------------------------------------------------------
 M.sequence = {
-	'srcfile',  'src', 'lexstream', 'ast', 'proto', 'bytecode', 'function' }
+   "srcfile",
+   "src",
+   "lexstream",
+   "ast",
+   "proto",
+   "bytecode",
+   "function",
+}
 
 local arg_types = {
-	srcfile    = { 'string', '?string' },
-	src        = { 'string', '?string' },
-	lexstream  = { 'lexer.stream', '?string' },
-	ast        = { 'table', '?string' },
-	proto      = { 'table', '?string' },
-	bytecode   = { 'string', '?string' },
+   srcfile = { "string", "?string" },
+   src = { "string", "?string" },
+   lexstream = { "lexer.stream", "?string" },
+   ast = { "table", "?string" },
+   proto = { "table", "?string" },
+   bytecode = { "string", "?string" },
 }
 
 if false then
-    -- if defined, runs on every newly-generated AST
-    function M.check_ast(ast)
-        local function rec(x, n, parent)
-            if not x.lineinfo and parent.lineinfo then
-                local pp = require 'metalua.pprint'
-                pp.printf("WARNING: Missing lineinfo in child #%s `%s{...} of node at %s",
-                          n, x.tag or '', tostring(parent.lineinfo))
+   -- if defined, runs on every newly-generated AST
+   function M.check_ast(ast)
+      local function rec(x, n, parent)
+         if not x.lineinfo and parent.lineinfo then
+            local pp = require("metalua.pprint")
+            pp.printf(
+               "WARNING: Missing lineinfo in child #%s `%s{...} of node at %s",
+               n,
+               x.tag or "",
+               tostring(parent.lineinfo)
+            )
+         end
+         for i, child in ipairs(x) do
+            if type(child) == "table" then
+               rec(child, i, x)
             end
-            for i, child in ipairs(x) do
-                if type(child)=='table' then rec(child, i, x) end
-            end
-        end
-        rec(ast, -1, { })
-    end
+         end
+      end
+      rec(ast, -1, {})
+   end
 end
 
-
-M.order= { }; for a,b in pairs(M.sequence) do M.order[b]=a end
-
-local CONV = { } -- conversion metatable __index
-
-function CONV :srcfile_to_src(x, name)
-	checks('metalua.compiler', 'string', '?string')
-	name = name or '@'..x
-	local f, msg = io.open (x, 'rb')
-	if not f then error(msg) end
-	local r, msg = f :read '*a'
-	if not r then error("Cannot read file '"..x.."': "..msg) end
-	f :close()
-	return r, name
+M.order = {}
+for a, b in pairs(M.sequence) do
+   M.order[b] = a
 end
 
-function CONV :src_to_lexstream(src, name)
-	checks('metalua.compiler', 'string', '?string')
-	local r = self.parser.lexer :newstream (src, name)
-	return r, name
+local CONV = {} -- conversion metatable __index
+
+function CONV:srcfile_to_src(x, name)
+   checks("metalua.compiler", "string", "?string")
+   name = name or ("@" .. x)
+   local f, msg = io.open(x, "rb")
+   if not f then
+      error(msg)
+   end
+   local r, rmsg = f:read("*a")
+   if not r then
+      error("Cannot read file '" .. x .. "': " .. rmsg)
+   end
+   f:close()
+   return r, name
 end
 
-function CONV :lexstream_to_ast(lx, name)
-	checks('metalua.compiler', 'lexer.stream', '?string')
-	local r = self.parser.chunk(lx)
-	r.source = name
-    if M.check_ast then M.check_ast (r) end
-	return r, name
+function CONV:src_to_lexstream(src, name)
+   checks("metalua.compiler", "string", "?string")
+   local r = self.parser.lexer:newstream(src, name)
+   return r, name
+end
+
+function CONV:lexstream_to_ast(lx, name)
+   checks("metalua.compiler", "lexer.stream", "?string")
+   local r = self.parser.chunk(lx)
+   r.source = name
+   if M.check_ast then
+      M.check_ast(r)
+   end
+   return r, name
 end
 
 local bytecode_compiler = nil -- cache to avoid repeated `pcall(require(...))`
 local function get_bytecode_compiler()
-    if bytecode_compiler then return bytecode_compiler else
-        local status, result = pcall(require, 'metalua.compiler.bytecode')
-        if status then
-            bytecode_compiler = result
-            return result
-        elseif string.match(result, "not found") then
-            error "Compilation only available with full Metalua"
-        else error (result) end
-    end
+   if bytecode_compiler then
+      return bytecode_compiler
+   else
+      local status, result = pcall(require, "metalua.compiler.bytecode")
+      if status then
+         bytecode_compiler = result
+         return result
+      elseif string.match(result, "not found") then
+         error("Compilation only available with full Metalua")
+      else
+         error(result)
+      end
+   end
 end
 
-function CONV :ast_to_proto(ast, name)
-	checks('metalua.compiler', 'table', '?string')
-    return get_bytecode_compiler().ast_to_proto(ast, name), name
+function CONV:ast_to_proto(ast, name)
+   checks("metalua.compiler", "table", "?string")
+   return get_bytecode_compiler().ast_to_proto(ast, name), name
 end
 
-function CONV :proto_to_bytecode(proto, name)
-    return get_bytecode_compiler().proto_to_bytecode(proto), name
+function CONV:proto_to_bytecode(proto, name)
+   return get_bytecode_compiler().proto_to_bytecode(proto), name
 end
 
-function CONV :bytecode_to_function(bc, name)
-	checks('metalua.compiler', 'string', '?string')
-	return loadstring(bc, name)
+function CONV:bytecode_to_function(bc, name)
+   checks("metalua.compiler", "string", "?string")
+   return loadstring(bc, name)
 end
 
 -- Create all sensible combinations
-for i=1,#M.sequence do
-	local src = M.sequence[i]
-	for j=i+2, #M.sequence do
-		local dst = M.sequence[j]
-		local dst_name = src.."_to_"..dst
-		local my_arg_types = arg_types[src]
-		local functions = { }
-		for k=i, j-1 do
-			local name =  M.sequence[k].."_to_"..M.sequence[k+1]
-			local f = assert(CONV[name], name)
-			table.insert (functions, f)
-		end
-		CONV[dst_name] = function(self, a, b)
-			checks('metalua.compiler', unpack(my_arg_types))
-			for _, f in ipairs(functions) do
-				a, b = f(self, a, b)
-			end
-			return a, b
-		end
-		--printf("Created M.%s out of %s", dst_name, table.concat(n, ', '))
-	end
+for i = 1, #M.sequence do
+   local src = M.sequence[i]
+   for j = i + 2, #M.sequence do
+      local dst = M.sequence[j]
+      local dst_name = src .. "_to_" .. dst
+      local my_arg_types = arg_types[src]
+      local functions = {}
+      for k = i, j - 1 do
+         local name = M.sequence[k] .. "_to_" .. M.sequence[k + 1]
+         local f = assert(CONV[name], name)
+         table.insert(functions, f)
+      end
+      CONV[dst_name] = function(self, a, b)
+         checks("metalua.compiler", unpack(my_arg_types))
+         for _, f in ipairs(functions) do
+            a, b = f(self, a, b)
+         end
+         return a, b
+      end
+      --printf("Created M.%s out of %s", dst_name, table.concat(n, ', '))
+   end
 end
 
-
+if jit then
+   function CONV:ast_to_bytecode(ast, name)
+      return require("metalua.jit.compiler")(ast, name)
+   end
+   function CONV:ast_to_function(ast, name)
+      return loadstring(self:ast_to_bytecode(ast, name))
+   end
+end
 --------------------------------------------------------------------------------
 -- This one goes in the "wrong" direction, cannot be composed.
 --------------------------------------------------------------------------------
-function CONV :function_to_bytecode(...) return string.dump(...) end
-
-function CONV :ast_to_src(...)
-	require 'metalua.loader' -- ast_to_string isn't written in plain lua
-	return require 'metalua.compiler.ast_to_src' (...)
+function CONV:function_to_bytecode(...)
+   return string.dump(...)
 end
 
-local MT = { __index=CONV, __type='metalua.compiler' }
+function CONV:ast_to_src(...)
+   return require("metalua.compiler.ast_to_src")(...)
+end
+
+local MT = { __index = CONV, __type = "metalua.compiler" }
 
 function M.new()
-	local parser = require 'metalua.compiler.parser' .new()
-	local self = { parser = parser }
-	setmetatable(self, MT)
-	return self
+   local parser = require("metalua.compiler.parser").new()
+   local self = { parser = parser }
+   setmetatable(self, MT)
+   return self
 end
 
 return M

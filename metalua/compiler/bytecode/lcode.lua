@@ -63,10 +63,8 @@ local luaK = {}
 luaK.MAXSTACK = 250 -- (llimits.h, used in lcode.lua)
 luaK.LUA_MULTRET = -1 -- (lua.h)
 
-------------------------------------------------------------------------
 -- Marks the end of a patch list. It is an invalid value both as an absolute
 -- address, and as a list link (would link an element to itself).
-------------------------------------------------------------------------
 luaK.NO_JUMP = -1
 
 --FF 5.1
@@ -74,11 +72,15 @@ function luaK:isnumeral(e)
    return e.k == "VKNUM" and e.t == self.NO_JUMP and e.t == self.NO_JUMP
 end
 
-------------------------------------------------------------------------
 -- emulation of TObject macros (these are from lobject.h)
 -- * TObject is a table since lcode passes references around
 -- * tt member field removed, using Lua's type() instead
-------------------------------------------------------------------------
+
+---@alias TObject table
+
+---check if o is a number
+---@param o TObject
+---@return boolean
 function luaK:ttisnumber(o)
    if o then
       return type(o.value) == "number"
@@ -86,42 +88,76 @@ function luaK:ttisnumber(o)
       return false
    end
 end
+
+---get the value of o
+---@param o TObject
+---@return any
 function luaK:nvalue(o)
    return o.value
 end
+
+---set o to nil
+---@param o TObject
 function luaK:setnilvalue(o)
    o.value = nil
 end
+
+---set o's value to s
+---@param o TObject
+---@param s any
 function luaK:setsvalue(o, s)
    o.value = s
 end
+
 luaK.setnvalue = luaK.setsvalue
 luaK.sethvalue = luaK.setsvalue
 
-------------------------------------------------------------------------
--- returns the instruction object for given e (expdesc)
-------------------------------------------------------------------------
+-- Expression descriptor
+---@class expdesc # info, k, t, f, info, aux ???
+---@field k "VVOID"|"VNIL"|"VTRUE"|"VFALSE"|"VK"|"VKNUM"|"VLOCAL"|"VUPVAL"|"VGLOBAL"|"VINDEXED"|"VJMP"|"VRELOCABLE"|"VNONRELOC"|"VCALL"|"VVARARG"
+---@field info number
+---@field aux number
+---@field t number patch list of `exit when true
+---@field f number patch list of `exit when false
+---@field nval number
+
+---@class functionstate # f, h, pc, lasttarget, freereg, nk, nactvar, jpc
+---@field f table # current function header
+---@field h table to find (and reuse) elements in k
+---@field prev functionstate  /* enclosing function */
+---@field LexState table  /* lexical state */
+---@field lua_State table  /* copy of the Lua state */
+---@field BlockCnt table  /* chain of current blocks */
+---@field pc number /* next position to code (equivalent to `ncode') */
+---@field lasttarget number;   /* `pc' of last `jump target' */
+---@field jpc number /* list of pending jumps to `pc' */
+---@field freereg number /* first free register */
+---@field nk number  /* number of elements in `k' */
+---@field np number  /* number of elements in `p' */
+---@field nlocvars number  /* number of elements in `locvars' */
+---@field nactvar number  /* number of active local variables */
+---@field upvalues table  /* upvalues */
+---@field actvar table  /* declared-variable stack */
+
+---returns the instruction object for given e (expdesc)
+---@param fs functionstate
+---@param e expdesc
+---@return table
 function luaK:getcode(fs, e)
    return fs.f.code[e.info]
 end
 
-------------------------------------------------------------------------
--- codes an instruction with a signed Bx (sBx) field
-------------------------------------------------------------------------
-function luaK:codeAsBx(fs, o, A, sBx)
-   return self:codeABx(fs, o, A, sBx + luaP.MAXARG_sBx)
-end
-
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---check t and f fields of e to see if there are jumps, equal then no jump, else jump
+---@param e expdesc
+---@return boolean
 function luaK:hasjumps(e)
    return e.t ~= e.f
 end
 
-------------------------------------------------------------------------
--- FF updated 5.1
-------------------------------------------------------------------------
+---optimize if ..., else put OP_LOADNIL
+---@param fs any
+---@param from any
+---@param n any
 function luaK:_nil(fs, from, n)
    if fs.pc > fs.lasttarget then -- no jumps to current position?
       if fs.pc == 0 then
@@ -142,9 +178,9 @@ function luaK:_nil(fs, from, n)
    self:codeABC(fs, "OP_LOADNIL", from, from + n - 1, 0) -- else no optimization
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---save a jump list, return a jump pos????
+---@param fs functionstate
+---@return number
 function luaK:jump(fs)
    local jpc = fs.jpc -- save list of jumps to here
    fs.jpc = self.NO_JUMP
@@ -152,22 +188,26 @@ function luaK:jump(fs)
    return self:concat(fs, j, jpc) -- keep them on hold
 end
 
---FF 5.1
+---return a return
+---@param fs functionstate
+---@param first number
+---@param nret number
 function luaK:ret(fs, first, nret)
    luaK:codeABC(fs, "OP_RETURN", first, nret + 1, 0)
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---put a iABC instruction and return jump
+---@param fs functionstate
+---@param op string
+---@param A number
+---@param B number
+---@param C number
+---@return unknown
 function luaK:condjump(fs, op, A, B, C)
    self:codeABC(fs, op, A, B, C)
    return self:jump(fs)
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
 function luaK:fixjump(fs, pc, dest)
    local jmp = fs.f.code[pc]
    local offset = dest - (pc + 1)
@@ -178,18 +218,18 @@ function luaK:fixjump(fs, pc, dest)
    luaP:SETARG_sBx(jmp, offset)
 end
 
-------------------------------------------------------------------------
--- returns current 'pc' and marks it as a jump target (to avoid wrong
--- optimizations with consecutive instructions not in the same basic block).
-------------------------------------------------------------------------
+---returns current 'pc' and marks it as a jump target (to avoid wrong
+---optimizations with consecutive instructions not in the same basic block).
+---@param fs functionstate
+---@return number
 function luaK:getlabel(fs)
    fs.lasttarget = fs.pc
    return fs.pc
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---@param fs functionstate
+---@param pc number
+---@return integer
 function luaK:getjump(fs, pc)
    local offset = luaP:GETARG_sBx(fs.f.code[pc])
    if offset == self.NO_JUMP then -- point to itself represents end of list
@@ -199,9 +239,6 @@ function luaK:getjump(fs, pc)
    end
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
 function luaK:getjumpcontrol(fs, pc)
    local pi = fs.f.code[pc]
    local ppi = fs.f.code[pc - 1]
@@ -212,11 +249,8 @@ function luaK:getjumpcontrol(fs, pc)
    end
 end
 
-------------------------------------------------------------------------
 -- check whether list has any jump that do not produce a value
 -- (or produce an inverted value)
-------------------------------------------------------------------------
---FF updated 5.1
 function luaK:need_value(fs, list, cond)
    while list ~= self.NO_JUMP do
       local i = self:getjumpcontrol(fs, list)
@@ -228,10 +262,6 @@ function luaK:need_value(fs, list, cond)
    return false -- not found
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
---FF updated 5.1
 function luaK:patchtestreg(fs, node, reg)
    assert(reg) -- pour assurer, vu que j'ai ajoute un parametre p/r a 5.0
    local i = self:getjumpcontrol(fs, node)
@@ -301,9 +331,10 @@ function luaK:patchtohere(fs, list)
    fs.jpc = self:concat(fs, fs.jpc, list)
 end
 
-------------------------------------------------------------------------
--- * l1 was a pointer, now l1 is returned and callee assigns the value
-------------------------------------------------------------------------
+---* l1 was a pointer, now l1 is returned and callee assigns the value
+---@param fs functionstate
+---@param l1 number
+---@param l2 number
 function luaK:concat(fs, l1, l2)
    if l2 == self.NO_JUMP then
       return l1 -- unchanged
@@ -321,9 +352,6 @@ function luaK:concat(fs, l1, l2)
    return l1 -- unchanged
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
 function luaK:checkstack(fs, n)
    local newstack = fs.freereg + n
    if newstack > fs.f.maxstacksize then
@@ -369,7 +397,8 @@ end
 -- * luaO_rawequalObj deleted in first assert
 -- * setobj2n deleted in assignment of v to f.k table
 ------------------------------------------------------------------------
---FF radically updated, not completely understood
+---@param fs functionstate
+---@param k TObject
 function luaK:addk(fs, k, v)
    local idx = fs.h[k.value]
    local f = fs.f
@@ -393,9 +422,9 @@ function luaK:addk(fs, k, v)
    end
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---@param fs functionstate
+---@param s string
+---@return number
 function luaK:stringK(fs, s)
    assert(type(s) == "string")
    local o = {} -- TObject
@@ -403,9 +432,9 @@ function luaK:stringK(fs, s)
    return self:addk(fs, o, o)
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---@param fs functionstate
+---@param r number
+---@return number
 function luaK:numberK(fs, r)
    assert(type(r) == "number")
    local o = {} -- TObject
@@ -413,9 +442,9 @@ function luaK:numberK(fs, r)
    return self:addk(fs, o, o)
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---@param fs functionstate
+---@param r boolean
+---@return number
 function luaK:boolK(fs, r)
    assert(type(r) == "boolean")
    local o = {} -- TObject
@@ -423,9 +452,8 @@ function luaK:boolK(fs, r)
    return self:addk(fs, o, o)
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---@param fs functionstate
+---@return number
 function luaK:nilK(fs)
    local k, v = {}, {} -- TObject
    self:setnilvalue(v)
@@ -490,10 +518,8 @@ function luaK:setcallreturns(fs, e, nresults)
    end
 end
 
-------------------------------------------------------------------------
--- Ajoute le code pour effectuer l'extraction de la locvar/upval/globvar
--- /idx, sachant
-------------------------------------------------------------------------
+---@param fs functionstate
+---@param e expdesc
 function luaK:dischargevars(fs, e)
    --printf("\ndischargevars\n")
    local k = e.k
@@ -518,9 +544,11 @@ function luaK:dischargevars(fs, e)
    --printf("\n/dischargevars\n")
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---@param fs functionstate
+---@param A number
+---@param b number
+---@param jump number
+---@return number
 function luaK:code_label(fs, A, b, jump)
    self:getlabel(fs) -- those instructions may be jump targets
    return self:codeABC(fs, "OP_LOADBOOL", A, b, jump)
@@ -824,12 +852,15 @@ function luaK:indexed(fs, t, k)
    t.k = "VINDEXED"
 end
 
---FF 5.1
+---@param op string
+---@param e1 expdesc
+---@param e2 expdesc
+---@return boolean
 function luaK:constfolding(op, e1, e2)
    if not self:isnumeral(e1) or not self:isnumeral(e2) then
       return false
    end
-   local v1, v2, e, r = e1.nval, e2 and e2.nval, nil
+   local v1, v2, e, r = e1.nval, e2 and e2.nval, nil, nil
    if op == "OP_ADD" then
       r = v1 + v2
    elseif op == "OP_SUB" then
@@ -913,9 +944,10 @@ function luaK:prefix(fs, op, e)
    end
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---
+---@param fs functionstate
+---@param op string
+---@param v number | boolean | table
 function luaK:infix(fs, op, v)
    if op == "and" then
       self:goiftrue(fs, v)
@@ -930,10 +962,7 @@ function luaK:infix(fs, op, v)
    end
 end
 
-------------------------------------------------------------------------
---
 -- grep "ORDER OPR" if you change these enums
-------------------------------------------------------------------------
 luaK.arith_opc = { -- done as a table lookup instead of a calc
    add = "OP_ADD",
    sub = "OP_SUB",
@@ -955,9 +984,10 @@ luaK.test_opc = { -- was ops[] in the codebinop function
    ge = { opc = "OP_LE", cond = false },
 }
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---@param fs functionstate
+---@param op string
+---@param e1 expdesc
+---@param e2 expdesc
 function luaK:posfix(fs, op, e1, e2)
    if op == "and" then
       assert(e1.t == self.NO_JUMP) -- list must be closed
@@ -996,27 +1026,22 @@ function luaK:posfix(fs, op, e1, e2)
    end
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---@param fs functionstate
+---@param line number
 function luaK:fixline(fs, line)
-   --assert (line)
-   if not line then
-      --print(debug.traceback "fixline (line == nil)")
-   end
    fs.f.lineinfo[fs.pc - 1] = line or 0
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---@param fs any
+---@param i instruction | number # ?
+---@param line number
+---@return number
 function luaK:code(fs, i, line)
    if not line then
       line = 0
-      --print(debug.traceback "line == nil")
    end
    local f = fs.f
-
+   -- HACK: for debug?
    do -- print it
       local params = {}
       for _, x in ipairs({ "A", "B", "Bx", "sBx", "C" }) do
@@ -1024,7 +1049,7 @@ function luaK:code(fs, i, line)
             table.insert(params, string.format("%s=%i", x, i[x]))
          end
       end
-      debugf("[code:\t%s\t%s]", luaP.opnames[i.OP], table.concat(params, ", "))
+      -- debugf("[code:\t%s\t%s]", luaP.opnames[i.OP], table.concat(params, ", "))
    end
 
    self:dischargejpc(fs) -- 'pc' will change
@@ -1048,9 +1073,13 @@ function luaK:code(fs, i, line)
    return pc
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---code numbers as ABC instructions
+---@param fs functionstate
+---@param o string
+---@param a number
+---@param b number
+---@param c number
+---@return number
 function luaK:codeABC(fs, o, a, b, c)
    assert(luaP:getOpMode(o) == "iABC", o .. " is not an ABC operation")
    --assert getbmode(o) ~= opargn or b == 0
@@ -1060,9 +1089,12 @@ function luaK:codeABC(fs, o, a, b, c)
    return self:code(fs, luaP:CREATE_ABC(o, a, b, c), fs.lastline)
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---code numbers as ABx instructions
+---@param fs functionstate
+---@param o string
+---@param a number
+---@param bc number
+---@return number
 function luaK:codeABx(fs, o, a, bc)
    assert(luaP:getOpMode(o) == "iABx" or luaP:getOpMode(o) == "iAsBx")
    --assert getcmode(o) == opargn
@@ -1071,9 +1103,15 @@ function luaK:codeABx(fs, o, a, bc)
    return self:code(fs, luaP:CREATE_ABx(o, a, bc), fs.lastline)
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
+---codes an instruction with a signed Bx (sBx) field
+---@param fs functionstate
+---@param o string
+---@param A number
+---@param sBx number
+function luaK:codeAsBx(fs, o, A, sBx)
+   return self:codeABx(fs, o, A, sBx + luaP.MAXARG_sBx)
+end
+
 function luaK:setlist(fs, base, nelems, tostore)
    local c = math.floor((nelems - 1) / luaP.LFIELDS_PER_FLUSH + 1)
    local b = tostore == self.LUA_MULTRET and 0 or tostore
@@ -1082,10 +1120,10 @@ function luaK:setlist(fs, base, nelems, tostore)
       self:codeABC(fs, "OP_SETLIST", base, b, c)
    else
       self:codeABC(fs, "OP_SETLIST", base, b, 0)
-      self:code(fs, c, fs.lastline) --FIXME
+      -- TODO:
+      self:code(fs, c, fs.lastline)
    end
    fs.freereg = base + 1
 end
 
 return luaK
-

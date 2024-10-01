@@ -158,11 +158,12 @@ local function check_conflict(fs, lh, v)
    end
 end
 
------------------------------------------------------------------------
--- Create an expdesc. To be updated when expdesc is lua-ified.
------------------------------------------------------------------------
-local function init_exp(e, k, i)
-   e.f, e.t, e.k, e.info = luaK.NO_JUMP, luaK.NO_JUMP, k, i
+---Create an expdesc. To be updated when expdesc is lua-ified.
+---@param e table
+---@param k string
+---@param info number
+local function init_exp(e, k, info)
+   e.f, e.t, e.k, e.info = luaK.NO_JUMP, luaK.NO_JUMP, k, info
 end
 
 -----------------------------------------------------------------------
@@ -192,9 +193,8 @@ local function searchvar(fs, name)
    return -1 -- not found
 end
 
------------------------------------------------------------------------
--- create and return a new proto [f]
------------------------------------------------------------------------
+---create and return a new proto [f]
+---@return table
 local function newproto()
    local f = {}
    f.k = {}
@@ -218,9 +218,9 @@ local function newproto()
    return f
 end
 
-------------------------------------------------------------------------
--- create and return a function state [new_fs] as a sub-funcstate of [fs].
-------------------------------------------------------------------------
+---create and return a function state [new_fs] as a sub-funcstate of [fs].
+---@param old_fs fs
+---@return fs
 local function open_func(old_fs)
    local new_fs = {}
    new_fs.upvalues = {}
@@ -249,10 +249,13 @@ end
 ------------------------------------------------------------------------
 -- Finish to set up [f] according to final state of [fs]
 ------------------------------------------------------------------------
-local function close_func(fs)
+local function close_func(fs, ast)
    local f = fs.f
    --printf("[CLOSE_FUNC] remove any remaining var")
    removevars(fs, 0)
+   -- if fs.nestline ~= 0 and fs.lastline < ast.lineinfo.last.line then
+   --    fs.lastline = fs.lastline + 1
+   -- end
    luaK:ret(fs, 0, 0)
    f.sizecode = fs.pc
    f.sizelineinfo = fs.pc
@@ -267,9 +270,6 @@ local function close_func(fs)
    end
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
 local function pushclosure(fs, func, v)
    local f = fs.f
    f.p[fs.np] = func.f
@@ -281,9 +281,7 @@ local function pushclosure(fs, func, v)
    end
 end
 
-------------------------------------------------------------------------
 -- FIXME: is there a need for f=fs.f? if yes, why not always using it?
-------------------------------------------------------------------------
 local function indexupvalue(fs, name, v)
    local f = fs.f
    for i = 0, f.nups - 1 do
@@ -301,9 +299,6 @@ local function indexupvalue(fs, name, v)
    return nups
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
 local function markupval(fs, level)
    local bl = fs.bl
    while bl and bl.nactvar > level do
@@ -323,9 +318,6 @@ local function bldepth(fs)
 end
 --]]
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
 local function enterblock(fs, bl, isbreakable)
    bl.breaklist = luaK.NO_JUMP
    bl.isbreakable = isbreakable
@@ -336,9 +328,6 @@ local function enterblock(fs, bl, isbreakable)
    assert(fs.freereg == fs.nactvar)
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
 local function leaveblock(fs)
    local bl = fs.bl
    fs.bl = bl.previous
@@ -355,10 +344,8 @@ local function leaveblock(fs)
    luaK:patchtohere(fs, bl.breaklist)
 end
 
-------------------------------------------------------------------------
 -- read a list of expressions from a list of ast [astlist]
 -- starts at the [offset]th element of the list (defaults to 1)
-------------------------------------------------------------------------
 local function explist(fs, astlist, v, offset)
    offset = offset or 1
    if #astlist < offset then
@@ -376,9 +363,6 @@ local function explist(fs, astlist, v, offset)
    return #astlist - offset + 1
 end
 
-------------------------------------------------------------------------
---
-------------------------------------------------------------------------
 local function funcargs(fs, ast, v, idx_from)
    local args = {} -- expdesc
    local nparams
@@ -1177,7 +1161,7 @@ function expr.Function(fs, ast, v)
    end
    parlist(new_fs, ast[1])
    chunk(new_fs, ast[2])
-   close_func(new_fs)
+   close_func(new_fs, ast)
    pushclosure(fs, new_fs, v)
 end
 
@@ -1329,7 +1313,7 @@ function M.ast_to_proto(ast, source)
    local fs = open_func(nil)
    fs.f.is_vararg = M.VARARG_ISVARARG
    chunk(fs, ast)
-   close_func(fs)
+   close_func(fs, ast)
    assert(fs.prev == nil)
    assert(fs.f.nups == 0)
    assert(fs.nestlevel == 0)

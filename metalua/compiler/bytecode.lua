@@ -17,13 +17,14 @@
 --
 --------------------------------------------------------------------------------
 
-local compile = require 'metalua.compiler.bytecode.compile'
-local ldump   = require 'metalua.compiler.bytecode.ldump'
+local compile = require("metalua.compiler.bytecode.compile")
+local ldump = require("metalua.compiler.bytecode.ldump")
 
-local M = { }
+local M = {}
 
-M.ast_to_proto      = compile.ast_to_proto
+M.ast_to_proto = compile.ast_to_proto
 M.proto_to_bytecode = ldump.dump_string
-M.proto_to_file     = ldump.dump_file
+M.proto_to_file = ldump.dump_file
 
 return M
+
